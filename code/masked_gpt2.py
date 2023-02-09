@@ -1,3 +1,4 @@
+#%%
 # import os 
 # os.chdir("/home/ubuntu/TransformerLens/transformer_lens/")
 

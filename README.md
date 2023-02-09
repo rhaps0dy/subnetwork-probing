@@ -2,11 +2,9 @@
 
 ```
 pip install pytorch-transformers==1.2.0
+cd subnetwork-probing/transformer_lens
+pip install -e .
 ```
-
-also
-
-
 
 # subnetwork-probing
 This is code for the paper:  
