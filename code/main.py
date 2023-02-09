@@ -69,8 +69,8 @@ for task in ["NER"]: # ('NER', 'UD', 'UPOS'):
 
                 print("Finding subnetwork...")
                 if task == "NER":
-                    log, model = train_ner(bert_encoder, '/home/arthur/NER/corpus/CoNLL-2003/eng.train', 
-                                           '/home/arthur/NER/corpus/CoNLL-2003/eng.testa', **kwargs)
+                    log, model = train_ner(bert_encoder, '../data/NER/eng.train', 
+                                           '../data/NER/eng.testa', **kwargs)
                 elif task == "UD":
                     log, model = train_ud(bert_encoder, '../data/UD_English/en-ud-train.conllu', 
                                           '../data/UD_English/en-ud-dev.conllu', **kwargs)

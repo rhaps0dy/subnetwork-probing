@@ -1,3 +1,13 @@
+# Setup
+
+```
+pip install pytorch-transformers==1.2.0
+```
+
+also
+
+
+
 # subnetwork-probing
 This is code for the paper:  
 [Low-Complexity Probing via Finding Subnetworks](https://github.com/stevenxcao/subnetwork-probing)  
