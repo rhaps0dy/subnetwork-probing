@@ -96,20 +96,19 @@ class HookPoint(nn.Module):
 class MaskedHookPoint(HookPoint):
     def __init__(self, mask_shape):
         super().__init__()
-        self.mask = torch.nn.Parameter(torch.ones(mask_shape))
-        
+        self.mask_scores = torch.nn.Parameter(torch.ones(mask_shape))
 
     def __repr__(self):
-        return super().__repr__() + f" with mask {self.mask}"    
+        return super().__repr__() + f" with mask_scores {self.mask_scores}"    
 
     def forward(self, x):
         import einops
 
-        assert x.shape[2] % self.mask.shape[0] == 0
-        assert x.shape[3] % self.mask.shape[1] == 0
+        assert x.shape[2] % self.mask_scores.shape[0] == 0
+        assert x.shape[3] % self.mask_scores.shape[1] == 0
         assert len(x.shape) == 4
-        broadcasted_mask = einops.repeat(self.mask, "a b -> (a c) (b d)", c=x.shape[2] // self.mask.shape[0], d=x.shape[3] // self.mask.shape[1])
-        return x * broadcasted_mask
+        broadcasted_mask_scores = einops.repeat(self.mask_scores, "a b -> (a c) (b d)", c=x.shape[2] // self.mask_scores.shape[0], d=x.shape[3] // self.mask_scores.shape[1])
+        return x * broadcasted_mask_scores
 
 # %%
 class HookedRootModule(nn.Module):

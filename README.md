@@ -8,7 +8,8 @@ pip install -e .
 
 # TODO
 
-[] Sort out `transformer_lens` as a submodule for code release.
+[ ] Sort out `transformer_lens` as a submodule for code release.
+[ ] Tune learning rate
 
 # subnetwork-probing
 This is code for the paper:  

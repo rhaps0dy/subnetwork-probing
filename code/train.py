@@ -6,14 +6,35 @@ import numpy as np
 from util import from_numpy, partial_state_dict
 from classifiers import POSModel, NERModel, UDModel
 from subnetwork_datasets import load_conllu, build_vocab, sent_avgs, masked_loss, evaluate, load_ner
+from transformer_lens.ioi_dataset import IOIDataset
+
+N = 100
+
+def logit_diff_from_ioi_dataset(
+    logits: torch.Tensor, tokens: torch.Tensor, mean=False,
+):
+    assert tokens.shape == (N, 16), tokens.shape # TODO check this is not breaking things...
+    assert len(logits.shape) == 3, logits.shape
+
+    io_labels = tokens[:, 2]
+    s_labels = tokens[:, 4]
+
+    io_logits = logits[torch.arange(N), -2, io_labels]
+    s_logits = logits[torch.arange(N), -2, s_labels]
+
+    logit_diff = io_logits - s_logits
+    if mean:
+        return logit_diff.mean()
+    else:
+        return logit_diff
 
 
 
-def train_ioi(gpt2, train_path, dev_path, lambda_init = 1000, lambda_final = 10000,
+def train_ioi(gpt2, lambda_init = 1000, lambda_final = 10000,
               lr_base = 3e-5, mask_lr_base = 0.1, lr_warmup_frac = 0.1,
               epochs = 3, batch_size = 32, verbose = True,
               lambda_startup_frac = 0.25, lambda_warmup_frac = 0.5, subbatch_size = 8,
-              masked = False):
+              masked = True):
     def calc_dev(): 
         gpt2.eval()
         all_preds = np.array([])
@@ -48,8 +69,17 @@ def train_ioi(gpt2, train_path, dev_path, lambda_init = 1000, lambda_final = 100
             return accs_converged and sparsity_converged
         return accs_converged
 
-    train_data = load_ner(train_path, gpt2.tag2i)
-    dev_data = load_ner(dev_path, gpt2.tag2i)    
+    # blackbox this bit
+    ioi_dataset = IOIDataset(prompt_type="ABBA", N=N, nb_templates=1,)
+    patch_dataset = (
+        ioi_dataset.gen_flipped_prompts(("IO", "RAND"))
+        .gen_flipped_prompts(("S", "RAND"))
+        .gen_flipped_prompts(("S1", "RAND"))
+    )
+    train_data = ioi_dataset.toks.long() 
+    # import pdb; pdb.set_trace()
+    # train_data = load_ner(train_path, gpt2.tag2i)
+    # dev_data = load_ner(dev_path, gpt2.tag2i)    
 
     print("lambda_init: {}, lambda_final: {}, lambda_startup_frac: {}, lambda_warmup_frac: {}".format(
         lambda_init, lambda_final, lambda_startup_frac, lambda_warmup_frac))
@@ -57,8 +87,13 @@ def train_ioi(gpt2, train_path, dev_path, lambda_init = 1000, lambda_final = 100
         lr_base, mask_lr_base, lr_warmup_frac, epochs, batch_size))
 
     # group parameters for different learning rates
-    mask_params = [p for n, p in gpt2.named_parameters() if 'mask_score' in n and p.requires_grad]
-    gpt2_params = [p for n, p in gpt2.named_parameters() if 'mask_score' not in n and p.requires_grad]
+
+    # one parameter per thing that is masked
+    mask_params = [p for n, p in gpt2.named_parameters() if 'mask_scores' in n and p.requires_grad]
+    # parameters for the probe (we don't use a probe)
+    gpt2_params = [p for n, p in gpt2.named_parameters() if 'mask_scores' not in n and p.requires_grad]
+
+    assert len(gpt2_params) == 0, ("GPT2 should be empty", gpt2_params)
 
     trainer = torch.optim.Adam([
         {'params': mask_params, 'lr': 0., 'lr_base': mask_lr_base, 'name': 'mask'},
@@ -74,53 +109,48 @@ def train_ioi(gpt2, train_path, dev_path, lambda_init = 1000, lambda_final = 100
     check_every = 2048
     lambda_reg = lambda_init
     for epoch in range(epochs):#tqdm.notebook.tqdm(range(epochs)):
-        np.random.shuffle(train_data)
-        for i in range(0, len(train_data), batch_size):#tqdm.notebook.tqdm(range(0, len(train_data), batch_size)):
-            examples = train_data[i:i+batch_size]
-            gpt2.train()
-            trainer.zero_grad()
-            if len(examples) == batch_size:
-                # compute loss, also log other metrics
-                for i in range(0, len(examples), subbatch_size):
-                    examples_subbatch = examples[i:i+subbatch_size]
-                    sents = [exmp['sent'] for exmp in examples]
-                    labels = [exmp['labels'] for exmp in examples]
-                    loss = F.cross_entropy(gpt2.predict_batch(sents), from_numpy(pack_labels(labels)).long())
-                    (loss * len(examples_subbatch) / len(examples)).backward()
-                if masked:
-                    reg = gpt2.gpt2.compute_total_regularizer()
-                    (lambda_reg * reg).backward()
-                #mask_grad_norm = torch.nn.utils.clip_grad_norm_(mask_params, np.inf)
-                #gpt2_grad_norm = torch.nn.utils.clip_grad_norm_(gpt2_params, np.inf)
-                trainer.step()
+        gpt2.train()
+        trainer.zero_grad()
+        # compute loss, also log other metrics
+        loss = -1.0 * logit_diff_from_ioi_dataset(gpt2(train_data), train_data, mean=True)
+        # import pdb; pdb.set_trace()
+        loss.backward()
+        
+        if masked:
+            reg = gpt2.gpt2.compute_total_regularizer()
+            (lambda_reg * reg).backward()
+        #mask_grad_norm = torch.nn.utils.clip_grad_norm_(mask_params, np.inf)
+        #gpt2_grad_norm = torch.nn.utils.clip_grad_norm_(gpt2_params, np.inf)
+        trainer.step()
 
-                processed += len(examples)
-                check_processed += len(examples)
+        # processed += len(examples)
+        # check_processed += len(examples)
 
-                # warmup from 0 to lr_base for lr_warmup_frac
-                lr_ratio = min(1, processed / (lr_warmup_frac * epochs * len(train_data)))
-                set_lr(lr_ratio)
-                
-                # schedule lambda_reg - constant, then linear, then constant
-                lambda_ratio = max(0, min(1, (processed - lambda_startup_frac * epochs * len(train_data)) / (lambda_warmup_frac * epochs * len(train_data))))
-                lambda_reg = lambda_init + (lambda_final - lambda_init) * lambda_ratio
+        # warmup from 0 to lr_base for lr_warmup_frac
+        lr_ratio = min(1, epoch / (lr_warmup_frac * epochs * len(train_data)))
+        set_lr(lr_ratio)
+        
+        # schedule lambda_reg - constant, then linear, then constant
+        lambda_ratio = max(0, min(1, (epoch - lambda_startup_frac * epochs * len(train_data)) / (lambda_warmup_frac * epochs * len(train_data))))
+        lambda_reg = lambda_init + (lambda_final - lambda_init) * lambda_ratio
 
-                if check_processed >= check_every:
-                    if masked:
-                        log.append({'dev_acc': calc_dev(),
-                                    'loss_val': loss.item(), 
-                                    'reg_val': reg.item(),
-                                    #'mask_grad_norm': mask_grad_norm.item(), 
-                                    #'gpt2_grad_norm': gpt2_grad_norm.item(), 
-                                    'pct_binary': gpt2.gpt2.compute_binary_pct()})
-                    else:
-                        log.append({'dev_acc': calc_dev(),
-                                    'loss_val': loss.item()})
-                    check_processed -= check_every
-                    if converged(log):
-                        break
-                    if verbose:
-                        print("Log: {}".format(log[-1]))
+        if masked:
+            log.append({'dev_acc': calc_dev(),
+                        'loss_val': loss.item(), 
+                        # 'reg_val': reg.item(), # TODO add reg
+
+                        #'mask_grad_norm': mask_grad_norm.item(), 
+                        #'gpt2_grad_norm': gpt2_grad_norm.item(), 
+                        # 'pct_binary': gpt2.gpt2.compute_binary_pct()
+                        })
+        else:
+            log.append({'dev_acc': calc_dev(),
+                        'loss_val': loss.item()})
+        check_processed -= check_every
+        if converged(log):
+            break
+        if verbose:
+            print("Log: {}".format(log[-1]))
         if converged(log):
             break
     return log, gpt2

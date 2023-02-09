@@ -7,7 +7,6 @@ from train import train_ioi, save_mask_scores
 from visualize import visualize_head_sparsity, visualize_dense_sparsity, visualize_layer_attn_sparsity
 
 from transformer_lens.HookedTransformer import MaskedHookedTransformer
-gpt2 = MaskedHookedTransformer.from_pretrained("gpt2")
 
 from matplotlib import pyplot as plt
 plt.switch_backend('agg')
@@ -20,50 +19,57 @@ lambda_final = 1
 verbose = True
 base_path = sys.argv[1]
 expt_name = 'expt_1'
+epochs = 1 
+masked = False
 
 for task in ["IOI"]:
     for setting in ('pretrained', 'resetenc', 'resetall'):
-        for method in ('prune', 'mlp1'):
+        for method in ['prune']: # , 'mlp1'):
             # if method == 'mlp1':
             #     params_list = (1, 2, 5, 10, 25, 50, 125, 250, 768)
             # elif method == 'finetune':
             #     params_list = (1,)
-            # elif method == 'prune':
-            #     params_list = ((768,768), (768,192), (768,24), (768,6), 
-            #                    (768,1), (192,1), (24,1), (6,1), (1,1))
-                
-            # for params in params_list:
-            #     epochs = 20
-            #     print(task)
-            #     print(method)
-            #     if method == 'mlp1':
-            #         rank = params
-            #         print("MLP1 - Rank: {}".format(rank))
-            #         bert = WordLevelBert('bert-base-uncased')
-            #         bert.freeze_bert()
-            #         bert_encoder = BertEncoder(bert, mlp1 = True, rank = rank)
-            #         masked = False
-            #     elif method == 'finetune':
-            #         print("Fine-tuning")
-            #         bert = WordLevelBert('bert-base-uncased')
-            #         bert_encoder = BertEncoder(bert, mlp1 = False)
-            #         masked = False
-            #     elif method == 'prune':
-            #         out_w_per_mask, in_w_per_mask = params
-            #         print("Prune - (out,in)_w_per_mask: {}".format((out_w_per_mask, in_w_per_mask)))
-            #         bert = MaskedWordLevelBert('bert-base-uncased', out_w_per_mask, in_w_per_mask)
-            #         bert.freeze_bert()
-            #         bert_encoder = BertEncoder(bert, mlp1 = False)
-            #         masked = True
+            assert method == 'prune'
+            params_list = [(12, 1)] # 12 heads, but ablate ALL of the resid stream dims at once
 
-                if setting == 'pretrained':
-                    print("Keeping pre-trained")
-                elif setting == 'resetenc':
-                    print("Resetting encoder!")
-                    bert.reset_weights(encoder_only = True)
-                elif setting == 'resetall':
-                    print("Resetting all!")
-                    bert.reset_weights(encoder_only = False)
+            # ((768,768), (768,192), (768,24), (768,6), 
+            #       (768,1), (192,1), (24,1), (6,1), (1,1))
+                
+            for params in params_list:
+                epochs = 20
+                print(task)
+                print(method)
+                # if method == 'mlp1':
+                #     rank = params
+                #     print("MLP1 - Rank: {}".format(rank))
+                #     bert = WordLevelBert('bert-base-uncased')
+                #     bert.freeze_bert()
+                #     bert_encoder = BertEncoder(bert, mlp1 = True, rank = rank)
+                #     masked = False
+                # elif method == 'finetune':
+                #     print("Fine-tuning")
+                #     bert = WordLevelBert('bert-base-uncased')
+                #     bert_encoder = BertEncoder(bert, mlp1 = False)
+                #     masked = False
+                assert method == 'prune'
+                # if method == 'prune':
+                out_w_per_mask, in_w_per_mask = params
+                print("Prune - (out,in)_w_per_mask: {}".format((out_w_per_mask, in_w_per_mask)))
+                # bert = MaskedWordLevelBert('bert-base-uncased', out_w_per_mask, in_w_per_mask)
+                gpt2 = MaskedHookedTransformer.from_pretrained("gpt2")
+                # bert.freeze_bert()
+                gpt2.freeze_weights()
+                # bert_encoder = BertEncoder(bert, mlp1 = False)
+                masked = False
+
+                assert setting == 'pretrained', setting
+                    # print("Keeping pre-trained")
+                # elif setting == 'resetenc':
+                #     print("Resetting encoder!")
+                #     bert.reset_weights(encoder_only = True)
+                # elif setting == 'resetall':
+                #     print("Resetting all!")
+                #     bert.reset_weights(encoder_only = False)
                 
                 kwargs = {'lambda_init' : lambda_init, 'lambda_final' : lambda_final, 
                           'epochs' : epochs, 'lr_base' : lr_base, 'mask_lr_base' : mask_lr_base, 
@@ -71,9 +77,10 @@ for task in ["IOI"]:
                 print(kwargs)
 
                 print("Finding subnetwork...")
-                if task == "IOI":
-                    log, model = train_ioi(gpt2, '../data/IOI/eng.train', 
-                                           '../data/IOI/eng.testa', **kwargs)
+                assert task == "IOI"
+                log, model = train_ioi(gpt2) #, '../data/IOI/eng.train', 
+                                           #' ../data/IOI/eng.testa', **kwargs)
+
                 # if task == "NER":
                 #     log, model = train_ner(bert_encoder, '../data/NER/eng.train', 
                 #                            '../data/NER/eng.testa', **kwargs)

@@ -1482,8 +1482,11 @@ class HookedTransformer(HookedRootModule):
     def freeze_weights(self):
         """Freeze all weights in the model"""
         for n, p in self.named_parameters():
-            if not n.endswith("mask"):
+            if not n.endswith("mask_scores"):
+                print(n)
                 p.requires_grad = False
+            else:
+                print(n, "is not frozen")
 
 class MaskedHookedTransformer(HookedTransformer):
     def __init__(self, cfg, tokenizer=None, move_to_device=True):
