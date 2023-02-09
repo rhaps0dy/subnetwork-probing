@@ -6,6 +6,10 @@ cd subnetwork-probing/transformer_lens
 pip install -e .
 ```
 
+# TODO
+
+[] Sort out `transformer_lens` as a submodule for code release.
+
 # subnetwork-probing
 This is code for the paper:  
 [Low-Complexity Probing via Finding Subnetworks](https://github.com/stevenxcao/subnetwork-probing)  
