@@ -24,6 +24,9 @@ def regularizer(
     zeta: float = 1.1,
     beta: float = 2 / 3,
 ) -> torch.Tensor:
+    # TODO: globally read hyperparams from config
+    # need to also do this in the masked hook point so
+    # the hyperparams are the same
     def regularization_term(mask: torch.nn.Parameter) -> torch.Tensor:
         return torch.sigmoid(mask - beta * np.log(-gamma / zeta)).sum() / mask.numel()
 
@@ -122,9 +125,11 @@ def train_ioi(
         gpt2.train()
         trainer.zero_grad()
         # compute loss, also log other metrics
-        loss = -1.0 * logit_diff_from_ioi_dataset(
+        logit_diff_term = -1.0 * logit_diff_from_ioi_dataset(
             gpt2(train_data), train_data, mean=True
         )
+        regularizer_term = regularizer(gpt2)
+        loss = logit_diff_term + lambda_reg * regularizer_term
         loss.backward()
 
         if masked:
