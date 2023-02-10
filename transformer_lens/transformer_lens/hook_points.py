@@ -97,13 +97,16 @@ class HookPoint(nn.Module):
 class MaskedHookPoint(HookPoint):
     def __init__(self, mask_shape):
         super().__init__()
+        self.training = True  # assume always training for now
         self.mask_scores = torch.nn.Parameter(torch.ones(mask_shape))
+        self.beta = (
+            2 / 3
+        )  # TODO: make this hyperaparams globally set and synced somehow
+        self.gamma = -0.1
+        self.zeta = 1.1
 
     def __repr__(self):
         return super().__repr__() + f" with mask_scores {self.mask_scores}"
-
-    def compute_regularizer(self):
-        return torch.zeros(1,)
 
     def forward(self, x):
         import einops
@@ -111,8 +114,20 @@ class MaskedHookPoint(HookPoint):
         assert x.shape[2] % self.mask_scores.shape[0] == 0
         assert x.shape[3] % self.mask_scores.shape[1] == 0
         assert len(x.shape) == 4
+
+        # reparam trick taken from their code
+        uniform_sample = (
+            torch.zeros_like(self.mask_scores).uniform_().clamp(0.0001, 0.9999)
+        )
+        s = torch.sigmoid(
+            (uniform_sample.log() - (1 - uniform_sample).log() + self.mask_scores)
+            / self.beta
+        )
+        s_bar = s * (self.zeta - self.gamma) + self.gamma
+        mask = s_bar.clamp(min=0.0, max=1.0)
+
         broadcasted_mask_scores = einops.repeat(
-            self.mask_scores,
+            mask,
             "a b -> (a c) (b d)",
             c=x.shape[2] // self.mask_scores.shape[0],
             d=x.shape[3] // self.mask_scores.shape[1],
