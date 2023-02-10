@@ -34,9 +34,7 @@ class Embed(nn.Module):
             torch.empty(self.cfg.d_vocab, self.cfg.d_model)
         )
 
-    def forward(
-        self, tokens: TT[T.batch, T.pos]
-    ) -> TT[T.batch, T.pos, T.d_model]:
+    def forward(self, tokens: TT[T.batch, T.pos]) -> TT[T.batch, T.pos, T.d_model]:
         # If A has shape [a, b] and B has shape [c, d], then A[:, B] has shape [a, c, d]
         # B acts as a tensor of indices into the second dimension (so >=0 and <b)
         return self.W_E[tokens, :]
@@ -115,9 +113,7 @@ class LayerNormPre(nn.Module):
         # Hook Normalized captures LN output - here it's a vector with std 1 and mean 0
         self.hook_normalized = HookPoint()  # [batch, pos, length]
 
-    def forward(
-        self, x: TT[T.batch, T.pos, T.length]
-    ) -> TT[T.batch, T.pos, T.length]:
+    def forward(self, x: TT[T.batch, T.pos, T.length]) -> TT[T.batch, T.pos, T.length]:
         x = x - x.mean(axis=-1, keepdim=True)  # [batch, pos, length]
         scale: TT[T.batch, T.pos, 1] = self.hook_scale(
             (x.pow(2).mean(-1, keepdim=True) + self.eps).sqrt()
@@ -153,9 +149,7 @@ class LayerNorm(nn.Module):
         # Hook_normalized is on the LN output
         self.hook_normalized = HookPoint()  # [batch, pos, length]
 
-    def forward(
-        self, x: TT[T.batch, T.pos, T.length]
-    ) -> TT[T.batch, T.pos, T.length]:
+    def forward(self, x: TT[T.batch, T.pos, T.length]) -> TT[T.batch, T.pos, T.length]:
         x = x - x.mean(axis=-1, keepdim=True)  # [batch, pos, length]
         scale: TT[T.batch, T.pos, 1] = self.hook_scale(
             (x.pow(2).mean(-1, keepdim=True) + self.eps).sqrt()
@@ -177,9 +171,7 @@ class RMSNormPre(nn.Module):
         self.hook_scale = HookPoint()  # [batch, pos]
         self.hook_normalized = HookPoint()  # [batch, pos, length]
 
-    def forward(
-        self, x: TT[T.batch, T.pos, T.length]
-    ) -> TT[T.batch, T.pos, T.length]:
+    def forward(self, x: TT[T.batch, T.pos, T.length]) -> TT[T.batch, T.pos, T.length]:
         scale: TT[T.batch, T.pos, 1] = self.hook_scale(
             (x.pow(2).mean(-1, keepdim=True) + self.eps).sqrt()
         )
@@ -212,9 +204,7 @@ class RMSNorm(nn.Module):
         self.hook_scale = HookPoint()  # [batch, pos, 1]
         self.hook_normalized = HookPoint()  # [batch, pos, length]
 
-    def forward(
-        self, x: TT[T.batch, T.pos, T.length]
-    ) -> TT[T.batch, T.pos, T.length]:
+    def forward(self, x: TT[T.batch, T.pos, T.length]) -> TT[T.batch, T.pos, T.length]:
         scale: TT[T.batch, T.pos, 1] = self.hook_scale(
             (x.pow(2).mean(-1, keepdim=True) + self.eps).sqrt()
         )
@@ -288,9 +278,15 @@ class Attention(nn.Module):
         if self.cfg.scale_attn_by_inverse_layer_idx:
             self.attn_scale *= self.layer_id + 1
 
-        self.hook_k = MaskedHookPoint(mask_shape=(self.cfg.n_heads, 1))  # [batch, pos, head_index, d_head]
-        self.hook_q = MaskedHookPoint(mask_shape=(self.cfg.n_heads, 1))  # [batch, pos, head_index, d_head]
-        self.hook_v = MaskedHookPoint(mask_shape=(self.cfg.n_heads, 1))  # [batch, pos, head_index, d_head]
+        self.hook_k = MaskedHookPoint(
+            mask_shape=(self.cfg.n_heads, 1)
+        )  # [batch, pos, head_index, d_head]
+        self.hook_q = MaskedHookPoint(
+            mask_shape=(self.cfg.n_heads, 1)
+        )  # [batch, pos, head_index, d_head]
+        self.hook_v = MaskedHookPoint(
+            mask_shape=(self.cfg.n_heads, 1)
+        )  # [batch, pos, head_index, d_head]
         self.hook_z = HookPoint()  # [batch, pos, head_index, d_head]
         self.hook_attn_scores = HookPoint()  # [batch, head_index, query_pos, key_pos]
         self.hook_pattern = HookPoint()  # [batch, head_index, query_pos, key_pos]
@@ -309,11 +305,11 @@ class Attention(nn.Module):
             )
             self.register_buffer("rotary_sin", sin)
             self.register_buffer("rotary_cos", cos)
-    
+
     @property
     @lru_cache(maxsize=None)
     def OV(self) -> FactoredMatrix:
-        """ 
+        """
         OV-Circuit, as defined in A Mathematical Framework. Because there's no non-linearity between the value vector and the output of the layer, the output is purely determined by the matrix W_OV = W_V @ W_O, and not W_V or W_O individually. (Mathematically, for a single head, output == pattern @ residual @ W_V @ W_O, see the glossary for more)
 
         Done in the order W_V, W_O because the paper uses left-multiplying weight matrices, and TransformerLens uses right-multiplying, sorry!
@@ -323,11 +319,11 @@ class Attention(nn.Module):
         Returns a FactoredMatrix, with left matrix W_V [head_index, d_model, d_head] and right matrix W_O [head_index, d_head, d_model] - this is a low rank factorisation of the underlying [head_index, d_model, d_model]. FactoredMatrix has helper functions to deal with these large matrices efficiently. To get the OV circuit of a head k, attn.OV[k] works.
         """
         return FactoredMatrix(self.W_V, self.W_O)
-    
+
     @property
     @lru_cache(maxsize=None)
     def QK(self) -> FactoredMatrix:
-        """ 
+        """
         QK-Circuit, as defined in A Mathematical Framework. Because there's no non-linearity in the key-query dot product, the output is purely determined by the matrix W_QK = W_Q.T @ W_K, and not W_Q or W_K individually. (Mathematically, for a single head, pattern = destination_residual.T @ W_Q.T @ W_K @ source-residual, see the glossary for more).
 
         Done in the order Q on the left, K on the right, because the pattern has dimensions [destination_pos, source_pos]
@@ -336,9 +332,10 @@ class Attention(nn.Module):
 
         Returns a FactoredMatrix, with left matrix W_Q [head_index, d_model, d_head] and right matrix W_K.T [head_index, d_head, d_model] - this is a low rank factorisation of the underlying [head_index, d_model, d_model] matrix. FactoredMatrix has helper functions to deal with these large matrices efficiently. To get the QK circuit of a head k, attn.QK[k] works.
         """
-        W_K_transpose = einops.rearrange(self.W_K , "head_index d_model d_head -> head_index d_head d_model")
+        W_K_transpose = einops.rearrange(
+            self.W_K, "head_index d_model d_head -> head_index d_head d_model"
+        )
         return FactoredMatrix(self.W_Q, W_K_transpose)
-
 
     def forward(
         self,

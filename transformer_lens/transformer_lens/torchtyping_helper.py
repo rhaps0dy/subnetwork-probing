@@ -1,7 +1,7 @@
 class T:
     """Helper class to get mypy to work with TorchTyping and solidify naming conventions as a byproduct.
-    
-    Examples: 
+
+    Examples:
     - `TT[T.batch, T.pos, T.d_model]`
     - `TT[T.num_components, T.batch_and_pos_dims:...]`
     """

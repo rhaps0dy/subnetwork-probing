@@ -4,7 +4,10 @@ from typing import Optional, Union, Tuple, List, Dict
 from torchtyping import TensorType as TT
 from functools import lru_cache
 import transformer_lens.utils as utils
-from transformer_lens.torchtyping_helper import T as TH # Need the import as since FactoredMatrix declares T (for transpose)
+from transformer_lens.torchtyping_helper import (
+    T as TH,
+)  # Need the import as since FactoredMatrix declares T (for transpose)
+
 
 class FactoredMatrix:
     """
@@ -65,12 +68,12 @@ class FactoredMatrix:
             return other.A @ (other.B @ self)
 
     @property
-    def AB(self) -> TT[TH.leading_dims:..., TH.ldim, TH.rdim]:
+    def AB(self) -> TT[TH.leading_dims : ..., TH.ldim, TH.rdim]:
         """The product matrix - expensive to compute, and can consume a lot of GPU memory"""
         return self.A @ self.B
 
     @property
-    def BA(self) -> TT[TH.leading_dims:..., TH.rdim, TH.ldim]:
+    def BA(self) -> TT[TH.leading_dims : ..., TH.rdim, TH.ldim]:
         """The reverse product. Only makes sense when ldim==rdim"""
         assert (
             self.rdim == self.ldim
@@ -85,9 +88,9 @@ class FactoredMatrix:
     def svd(
         self,
     ) -> Tuple[
-        TT[TH.leading_dims:..., TH.ldim, TH.mdim],
-        TT[TH.leading_dims:..., TH.mdim],
-        TT[TH.leading_dims:..., TH.rdim, TH.mdim],
+        TT[TH.leading_dims : ..., TH.ldim, TH.mdim],
+        TT[TH.leading_dims : ..., TH.mdim],
+        TT[TH.leading_dims : ..., TH.rdim, TH.mdim],
     ]:
         """
         Efficient algorithm for finding Singular Value Decomposition, a tuple (U, S, Vh) for matrix M st S is a vector and U, Vh are orthogonal matrices, and U @ S.diag() @ Vh.T == M
@@ -104,19 +107,19 @@ class FactoredMatrix:
         return U, S, Vh
 
     @property
-    def U(self) -> TT[TH.leading_dims:..., TH.ldim, TH.mdim]:
+    def U(self) -> TT[TH.leading_dims : ..., TH.ldim, TH.mdim]:
         return self.svd()[0]
 
     @property
-    def S(self) -> TT[TH.leading_dims:..., TH.mdim]:
+    def S(self) -> TT[TH.leading_dims : ..., TH.mdim]:
         return self.svd()[1]
 
     @property
-    def Vh(self) -> TT[TH.leading_dims:..., TH.rdim, TH.mdim]:
+    def Vh(self) -> TT[TH.leading_dims : ..., TH.rdim, TH.mdim]:
         return self.svd()[2]
 
     @property
-    def eigenvalues(self) -> TT[TH.leading_dims:..., TH.mdim]:
+    def eigenvalues(self) -> TT[TH.leading_dims : ..., TH.mdim]:
         """Eigenvalues of AB are the same as for BA (apart from trailing zeros), because if BAv=kv ABAv = A(BAv)=kAv, so Av is an eigenvector of AB with eigenvalue k."""
         return torch.linalg.eig(self.BA).eigenvalues
 
@@ -138,7 +141,7 @@ class FactoredMatrix:
                 f"{idx} is too long an index for a FactoredMatrix with shape {self.shape}"
             )
 
-    def norm(self) -> TT[TH.leading_dims:...]:
+    def norm(self) -> TT[TH.leading_dims : ...]:
         """
         Frobenius norm is sqrt(sum of squared singular values)
         """
@@ -163,13 +166,13 @@ class FactoredMatrix:
     def ndim(self) -> int:
         return len(self.shape)
 
-    def collapse_l(self) -> TT[TH.leading_dims:..., TH.mdim, TH.rdim]:
+    def collapse_l(self) -> TT[TH.leading_dims : ..., TH.mdim, TH.rdim]:
         """
         Collapses the left side of the factorization by removing the orthogonal factor (given by self.U). Returns a (..., mdim, rdim) tensor
         """
         return self.S[..., :, None] * utils.transpose(self.Vh)
 
-    def collapse_r(self) -> TT[TH.leading_dims:..., TH.ldim, TH.mdim]:
+    def collapse_r(self) -> TT[TH.leading_dims : ..., TH.ldim, TH.mdim]:
         """
         Analogous to collapse_l, returns a (..., ldim, mdim) tensor
         """
@@ -182,6 +185,7 @@ class FactoredMatrix:
     def pair(
         self,
     ) -> Tuple[
-        TT[TH.leading_dims:..., TH.ldim, TH.mdim], TT[TH.leading_dims:..., TH.mdim, TH.rdim]
+        TT[TH.leading_dims : ..., TH.ldim, TH.mdim],
+        TT[TH.leading_dims : ..., TH.mdim, TH.rdim],
     ]:
         return (self.A, self.B)

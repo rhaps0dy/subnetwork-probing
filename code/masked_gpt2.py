@@ -4,15 +4,20 @@ from transformer_lens.HookedTransformer import MaskedHookedTransformer
 from transformer_lens.ioi_dataset import IOIDataset
 
 import IPython
+
 if IPython.get_ipython() is None:
-    IPython.get_ipython().run_line_magic('load_ext', 'autoreload')
-    IPython.get_ipython().run_line_magic('autoreload', '2')
+    IPython.get_ipython().run_line_magic("load_ext", "autoreload")
+    IPython.get_ipython().run_line_magic("autoreload", "2")
 
 #%%
 
 N = 100
 # blackbox this bit
-ioi_dataset = IOIDataset(prompt_type="ABBA", N=N, nb_templates=1,)
+ioi_dataset = IOIDataset(
+    prompt_type="ABBA",
+    N=N,
+    nb_templates=1,
+)
 patch_dataset = (
     ioi_dataset.gen_flipped_prompts(("IO", "RAND"))
     .gen_flipped_prompts(("S", "RAND"))
