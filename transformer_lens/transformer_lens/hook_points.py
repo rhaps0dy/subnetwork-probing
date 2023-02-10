@@ -9,11 +9,12 @@ from functools import *
 
 from dataclasses import dataclass
 
+
 @dataclass
 class LensHandle:
     hook: hooks.RemovableHandle
     is_permanent: bool = False
-    
+
 
 # %%
 # Define type aliases
@@ -54,6 +55,7 @@ class HookPoint(nn.Module):
             # For a backwards hook, module_output is a tuple of (grad,) - I don't know why.
             def full_hook(module, module_input, module_output):
                 return hook(module_output[0], hook=self)
+
             handle = self.register_full_backward_hook(full_hook)
             handle = LensHandle(handle, is_permanent)
             self.bwd_hooks.append(handle)
@@ -61,7 +63,6 @@ class HookPoint(nn.Module):
             raise ValueError(f"Invalid direction {dir}")
 
     def remove_hooks(self, dir="fwd", including_permanent=False) -> None:
-
         def _remove_hooks(handles: List[LensHandle]) -> None:
             output_handles = []
             for handle in handles:
@@ -99,7 +100,10 @@ class MaskedHookPoint(HookPoint):
         self.mask_scores = torch.nn.Parameter(torch.ones(mask_shape))
 
     def __repr__(self):
-        return super().__repr__() + f" with mask_scores {self.mask_scores}"    
+        return super().__repr__() + f" with mask_scores {self.mask_scores}"
+
+    def compute_regularizer(self):
+        return torch.zeros(1,)
 
     def forward(self, x):
         import einops
@@ -107,8 +111,14 @@ class MaskedHookPoint(HookPoint):
         assert x.shape[2] % self.mask_scores.shape[0] == 0
         assert x.shape[3] % self.mask_scores.shape[1] == 0
         assert len(x.shape) == 4
-        broadcasted_mask_scores = einops.repeat(self.mask_scores, "a b -> (a c) (b d)", c=x.shape[2] // self.mask_scores.shape[0], d=x.shape[3] // self.mask_scores.shape[1])
+        broadcasted_mask_scores = einops.repeat(
+            self.mask_scores,
+            "a b -> (a c) (b d)",
+            c=x.shape[2] // self.mask_scores.shape[0],
+            d=x.shape[3] // self.mask_scores.shape[1],
+        )
         return x * broadcasted_mask_scores
+
 
 # %%
 class HookedRootModule(nn.Module):
@@ -149,7 +159,9 @@ class HookedRootModule(nn.Module):
         for hp in self.hook_points():
             hp.clear_context()
 
-    def reset_hooks(self, clear_contexts=True, direction="both", including_permanent=False):
+    def reset_hooks(
+        self, clear_contexts=True, direction="both", including_permanent=False
+    ):
         if clear_contexts:
             self.clear_contexts()
         self.remove_all_hook_fns(direction, including_permanent)
