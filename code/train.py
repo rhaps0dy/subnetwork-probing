@@ -14,8 +14,35 @@ from subnetwork_datasets import (
     load_ner,
 )
 from transformer_lens.ioi_dataset import IOIDataset
+import wandb
+import plotly
+from typing import List
 
 N = 100
+
+
+def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
+    import plotly.graph_objects as go
+
+    fig = go.Figure(data=[go.Bar(x=x, y=y)])
+    wandb.log({"mask_scores": fig})
+
+
+def visualize_mask(gpt2: MaskedHookedTransformer) -> None:
+    node_name = []
+    mask_scores_for_names = []
+    for name, param in gpt2.named_parameters():
+        if "mask_scores" in name:
+            if "attn" not in name:
+                import ipdb
+
+                ipdb.set_trace()
+            for head_index, mask_value in enumerate(param[:, 0]):
+                mask_scores_for_names.append(mask_value.detach().cpu().item())
+                layer = name.split(".")[1]
+                qkv = name.split(".")[3].split("_")[1]
+                node_name.append(f"{layer}.{head_index}.{qkv}")
+    log_plotly_bar_chart(x=node_name, y=mask_scores_for_names)
 
 
 def regularizer(
@@ -28,7 +55,7 @@ def regularizer(
     # need to also do this in the masked hook point so
     # the hyperparams are the same
     def regularization_term(mask: torch.nn.Parameter) -> torch.Tensor:
-        return torch.sigmoid(mask - beta * np.log(-gamma / zeta)).sum() / mask.numel()
+        return torch.sigmoid(mask - beta * np.log(-gamma / zeta)).mean()
 
     mask_scores = [
         regularization_term(p)
@@ -61,37 +88,11 @@ def logit_diff_from_ioi_dataset(
 
 
 def train_ioi(
-    gpt2,
-    lambda_init=1000,
-    lambda_final=10000,
-    # lr_base=3e-5, #TODO: just going to do simple lr stuff for now
-    # mask_lr_base=0.1,
-    mask_lr=1e-3,
-    lr_warmup_frac=0.1,
-    epochs=3,
-    batch_size=32,
-    verbose=True,
-    lambda_startup_frac=0.25,
-    lambda_warmup_frac=0.5,
-    subbatch_size=8,
-    masked=True,
+    gpt2, mask_lr=1e-1, epochs=1000, verbose=True, lambda_reg=100,
 ):
     # blackbox this bit
     ioi_dataset = IOIDataset(prompt_type="ABBA", N=N, nb_templates=1,)
     train_data = ioi_dataset.toks.long()
-
-    # print(
-    #     "lambda_init: {}, lambda_final: {}, lambda_startup_frac: {}, lambda_warmup_frac: {}".format(
-    #         lambda_init, lambda_final, lambda_startup_frac, lambda_warmup_frac
-    #     )
-    # )
-    # print(
-    #     "lr_base: {}, mask_lr_base: {}, lr_warmup_frac: {}, epochs: {}, batch_size: {}".format(
-    #         lr_base, mask_lr_base, lr_warmup_frac, epochs, batch_size
-    #     )
-    # )
-
-    # group parameters for different learning rates
 
     # one parameter per thing that is masked
     mask_params = [
@@ -103,24 +104,9 @@ def train_ioi(
         for n, p in gpt2.named_parameters()
         if "mask_scores" not in n and p.requires_grad
     ]
-
     assert len(gpt2_params) == 0, ("GPT2 should be empty", gpt2_params)
-
-    # trainer = torch.optim.Adam(
-    #     [
-    #         {"params": mask_params, "lr": 1, "lr_base": mask_lr_base, "name": "mask",},
-    #         {"params": gpt2_params, "lr": 0.0, "lr_base": lr_base, "name": "gpt2"},
-    #     ],
-    #     lr=0,
-    # )
-
-    # def set_lr(lr_ratio):
-    #     for param_group in trainer.param_groups:
-    #         param_group["lr"] = param_group["lr_base"] * lr_ratio
-
     trainer = torch.optim.Adam(mask_params, lr=mask_lr)
     log = []
-    lambda_reg = lambda_init
     for epoch in range(epochs):  # tqdm.notebook.tqdm(range(epochs)):
         gpt2.train()
         trainer.zero_grad()
@@ -132,45 +118,33 @@ def train_ioi(
         loss = logit_diff_term + lambda_reg * regularizer_term
         loss.backward()
 
-        if masked:
-            reg = gpt2.gpt2.compute_total_regularizer()
-            (lambda_reg * reg).backward()
-        # mask_grad_norm = torch.nn.utils.clip_grad_norm_(mask_params, np.inf)
-        # gpt2_grad_norm = torch.nn.utils.clip_grad_norm_(gpt2_params, np.inf)
+        wandb.log(
+            {
+                "regularisation_loss": regularizer_term,
+                "logit_diff_loss": logit_diff_term,
+                "total_loss": loss,
+            }
+        )
         trainer.step()
-
-        # processed += len(examples)
-        # check_processed += len(examples)
 
         # warmup from 0 to lr_base for lr_warmup_frac
         # lr_ratio = min(1, epoch / (lr_warmup_frac * epochs * len(train_data)))
         # set_lr(lr_ratio)
 
         # schedule lambda_reg - constant, then linear, then constant
-        lambda_ratio = max(
-            0,
-            min(
-                1,
-                (epoch - lambda_startup_frac * epochs * len(train_data))
-                / (lambda_warmup_frac * epochs * len(train_data)),
-            ),
-        )
-        lambda_reg = lambda_init + (lambda_final - lambda_init) * lambda_ratio
+        # lambda_ratio = max(
+        #     0,
+        #     min(
+        #         1,
+        #         (epoch - lambda_startup_frac * epochs * len(train_data))
+        #         / (lambda_warmup_frac * epochs * len(train_data)),
+        #     ),
+        # )
+        # lambda_reg = lambda_init + (lambda_final - lambda_init) * lambda_ratio
 
-        if masked:
-            log.append(
-                {
-                    "loss_val": loss.item(),
-                    # 'reg_val': reg.item(), # TODO add reg
-                    # 'mask_grad_norm': mask_grad_norm.item(),
-                    # 'gpt2_grad_norm': gpt2_grad_norm.item(),
-                    # 'pct_binary': gpt2.gpt2.compute_binary_pct()
-                }
-            )
-        else:
-            log.append({"loss_val": loss.item()})
-        if verbose:
-            print("Log: {}".format(log[-1]))
+        log.append({"loss_val": loss.item()})
+        if epoch % 10 == 0:
+            visualize_mask(gpt2)
     return log, gpt2
 
 

@@ -590,9 +590,9 @@ class MLP(nn.Module):
         self.b_out = nn.Parameter(torch.zeros(self.cfg.d_model))
 
         self.hook_pre = HookPoint()  # [batch, pos, d_mlp]
-        self.hook_pre = MaskedHookPoint(
-            mask_shape=(self.cfg.d_mlp, 1), is_mlp=True
-        )  # TODO: get Arthur to check this
+        # self.hook_pre = MaskedHookPoint(
+        #     mask_shape=(self.cfg.d_mlp, 1), is_mlp=True
+        # )  # TODO: get Arthur to check this
         self.hook_post = HookPoint()  # [batch, pos, d_mlp]
 
         if self.cfg.act_fn == "relu":

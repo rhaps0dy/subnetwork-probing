@@ -16,6 +16,8 @@ from matplotlib import pyplot as plt
 
 plt.switch_backend("agg")
 import numpy as np
+import wandb
+
 
 mask_lr_base = 0.2
 lr_base = 5e-05
@@ -26,6 +28,8 @@ base_path = sys.argv[1]
 expt_name = "expt_1"
 epochs = 1
 masked = False
+
+wandb.init(project="subnetwork-probing", entity="acdcremix")
 
 for task in ["IOI"]:
     for setting in ["pretrained"]:  # , "resetenc", "resetall"):
@@ -95,9 +99,7 @@ for task in ["IOI"]:
 
                 print("Finding subnetwork...")
                 assert task == "IOI"
-                log, model = train_ioi(
-                    gpt2, masked=masked
-                )  # , '../data/IOI/eng.train',
+                log, model = train_ioi(gpt2)  # , '../data/IOI/eng.train',
                 #' ../data/IOI/eng.testa', **kwargs)
 
                 # if task == "NER":
