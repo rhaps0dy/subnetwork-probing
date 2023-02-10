@@ -13,19 +13,20 @@ import torch as t
 
 patch_typeguard()
 
+
 def test_patch_tokens():
 
     # Define small transformer
     cfg = HookedTransformerConfig(
-        n_layers=1, 
-        d_mlp=10, 
-        d_model=10, 
-        d_head=5, 
-        n_heads=2, 
-        n_ctx=20, 
+        n_layers=1,
+        d_mlp=10,
+        d_model=10,
+        d_head=5,
+        n_heads=2,
+        n_ctx=20,
         act_fn="relu",
         tokenizer_name="gpt2",
-        use_hook_tokens=True
+        use_hook_tokens=True,
     )
     model = HookedTransformer(cfg=cfg)
 
@@ -36,17 +37,19 @@ def test_patch_tokens():
 
     # Define hook function to alter the first token
     def hook_fn(tokens: TT["batch", "seq"], hook: HookPoint, new_first_token: int):
-        assert tokens[0, 0].item() != new_first_token # Need new_first_token to be different from original
+        assert (
+            tokens[0, 0].item() != new_first_token
+        )  # Need new_first_token to be different from original
         tokens[0, 0] = new_first_token
         return tokens
-    
+
     # Run with hooks
     out_from_hook = model.run_with_hooks(
         prompt,
         prepend_bos=False,
-        fwd_hooks = [
+        fwd_hooks=[
             ("hook_tokens", functools.partial(hook_fn, new_first_token=new_first_token))
-        ]
+        ],
     )
 
     out_direct = model(modified_prompt, prepend_bos=False)
