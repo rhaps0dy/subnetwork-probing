@@ -102,6 +102,9 @@ class MaskedHookPoint(HookPoint):
     def __repr__(self):
         return super().__repr__() + f" with mask_scores {self.mask_scores}"
 
+    def compute_regularizer(self):
+        return torch.zeros(1,)
+
     def forward(self, x):
         import einops
 

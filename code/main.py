@@ -28,7 +28,7 @@ epochs = 1
 masked = False
 
 for task in ["IOI"]:
-    for setting in ("pretrained", "resetenc", "resetall"):
+    for setting in ["pretrained"]:  # , "resetenc", "resetall"):
         for method in ["prune"]:  # , 'mlp1'):
             # if method == 'mlp1':
             #     params_list = (1, 2, 5, 10, 25, 50, 125, 250, 768)
@@ -95,7 +95,9 @@ for task in ["IOI"]:
 
                 print("Finding subnetwork...")
                 assert task == "IOI"
-                log, model = train_ioi(gpt2)  # , '../data/IOI/eng.train',
+                log, model = train_ioi(
+                    gpt2, masked=masked
+                )  # , '../data/IOI/eng.train',
                 #' ../data/IOI/eng.testa', **kwargs)
 
                 # if task == "NER":

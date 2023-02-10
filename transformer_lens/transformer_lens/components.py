@@ -16,9 +16,7 @@ from transformer_lens.torchtyping_helper import T
 
 from fancy_einsum import einsum
 
-from transformer_lens.past_key_value_caching import (
-    HookedTransformerKeyValueCacheEntry,
-)
+from transformer_lens.past_key_value_caching import HookedTransformerKeyValueCacheEntry
 
 # See tests/should_fail.py for an example of how to enforce type annotations at runtime
 from torchtyping import TensorType as TT
