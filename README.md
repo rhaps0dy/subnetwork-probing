@@ -10,6 +10,9 @@ pip install -e .
 
 [ ] Sort out `transformer_lens` as a submodule for code release.
 [ ] Tune learning rate
+[ ] tests for initialisation
+[ ] MLP masked hook points
+[ ] tests for Gumbel 
 
 # subnetwork-probing
 This is code for the paper:  

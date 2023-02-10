@@ -96,7 +96,7 @@ class HookPoint(nn.Module):
 
 
 class MaskedHookPoint(HookPoint):
-    def __init__(self, mask_shape, mask_p=0.9):
+    def __init__(self, mask_shape, mask_p=0.9, is_mlp=False):
         super().__init__()
         self.training = True  # assume always training for now
         self.mask_scores = torch.nn.Parameter(
@@ -108,6 +108,7 @@ class MaskedHookPoint(HookPoint):
         self.gamma = -0.1
         self.zeta = 1.1
         self.mask_p = 0.9
+        self.is_mlp = is_mlp
         self.init_weights()
 
     def __repr__(self):
@@ -120,13 +121,7 @@ class MaskedHookPoint(HookPoint):
         p = (self.mask_p - self.gamma) / (self.zeta - self.gamma)
         torch.nn.init.constant_(self.mask_scores, val=np.log(p / (1 - p)))
 
-    def forward(self, x):
-        import einops
-
-        assert x.shape[2] % self.mask_scores.shape[0] == 0
-        assert x.shape[3] % self.mask_scores.shape[1] == 0
-        assert len(x.shape) == 4
-
+    def sample_mask(self):
         # reparam trick taken from their code
         uniform_sample = (
             torch.zeros_like(self.mask_scores).uniform_().clamp(0.0001, 0.9999)
@@ -137,13 +132,31 @@ class MaskedHookPoint(HookPoint):
         )
         s_bar = s * (self.zeta - self.gamma) + self.gamma
         mask = s_bar.clamp(min=0.0, max=1.0)
+        return mask
 
-        broadcasted_mask_scores = einops.repeat(
-            mask,
-            "a b -> (a c) (b d)",
-            c=x.shape[2] // self.mask_scores.shape[0],
-            d=x.shape[3] // self.mask_scores.shape[1],
-        )
+    def forward(self, x):
+        import einops
+
+        if not self.is_mlp:
+            assert x.shape[2] % self.mask_scores.shape[0] == 0
+            assert x.shape[3] % self.mask_scores.shape[1] == 0
+            assert len(x.shape) == 4
+
+        mask = self.sample_mask()
+        if self.is_mlp:
+            broadcasted_mask_scores = einops.repeat(
+                mask[:, 0],
+                "a-> c d a",
+                c=x.shape[0],
+                d=x.shape[1],  # TODO: not confident with this, needs review
+            )
+        else:
+            broadcasted_mask_scores = einops.repeat(
+                mask,
+                "a b -> (a c) (b d)",
+                c=x.shape[2] // self.mask_scores.shape[0],
+                d=x.shape[3] // self.mask_scores.shape[1],
+            )
         return x * broadcasted_mask_scores
 
 
