@@ -4,6 +4,7 @@ from typing import Callable, Union, Optional, Sequence, Dict, List, Tuple
 import torch
 import torch.nn as nn
 import torch.utils.hooks as hooks
+import numpy as np
 
 from functools import *
 
@@ -95,18 +96,29 @@ class HookPoint(nn.Module):
 
 
 class MaskedHookPoint(HookPoint):
-    def __init__(self, mask_shape):
+    def __init__(self, mask_shape, mask_p=0.9):
         super().__init__()
         self.training = True  # assume always training for now
-        self.mask_scores = torch.nn.Parameter(torch.ones(mask_shape))
+        self.mask_scores = torch.nn.Parameter(
+            torch.ones(mask_shape)
+        )  # TODO: they do some clever initialisation
         self.beta = (
             2 / 3
         )  # TODO: make this hyperaparams globally set and synced somehow
         self.gamma = -0.1
         self.zeta = 1.1
+        self.mask_p = 0.9
+        self.init_weights()
 
     def __repr__(self):
         return super().__repr__() + f" with mask_scores {self.mask_scores}"
+
+    def init_weights(self):
+        """
+        this is how they initialise (their code pasted)
+        """
+        p = (self.mask_p - self.gamma) / (self.zeta - self.gamma)
+        torch.nn.init.constant_(self.mask_scores, val=np.log(p / (1 - p)))
 
     def forward(self, x):
         import einops
