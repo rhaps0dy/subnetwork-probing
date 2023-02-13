@@ -17,6 +17,7 @@ from transformer_lens.ioi_dataset import IOIDataset
 import wandb
 import plotly
 from typing import List
+import transformer_lens.utils as utils
 
 N = 100
 
@@ -31,9 +32,11 @@ def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
 def visualize_mask(gpt2: MaskedHookedTransformer) -> None:
     node_name = []
     mask_scores_for_names = []
+    node_count = 0
+    nodes_to_mask = []
     for name, param in gpt2.named_parameters():
         if "mask_scores" in name:
-            if "attn" not in name:
+            if "attn" not in name:  # TODO: MLPs mask scores
                 import ipdb
 
                 ipdb.set_trace()
@@ -42,7 +45,12 @@ def visualize_mask(gpt2: MaskedHookedTransformer) -> None:
                 layer = name.split(".")[1]
                 qkv = name.split(".")[3].split("_")[1]
                 node_name.append(f"{layer}.{head_index}.{qkv}")
+                if mask_scores_for_names[-1] > 0.0:
+                    node_count += 1
+                elif mask_scores_for_names[-1] < 0.0:
+                    nodes_to_mask.append(node_name[-1])
     log_plotly_bar_chart(x=node_name, y=mask_scores_for_names)
+    return node_count, nodes_to_mask
 
 
 def regularizer(
@@ -77,6 +85,9 @@ def logit_diff_from_ioi_dataset(
     io_labels = tokens[:, 2]
     s_labels = tokens[:, 4]
 
+    import ipdb
+
+    ipdb.set_trace()
     io_logits = logits[torch.arange(N), -2, io_labels]
     s_logits = logits[torch.arange(N), -2, s_labels]
 
@@ -88,8 +99,14 @@ def logit_diff_from_ioi_dataset(
 
 
 def train_ioi(
-    gpt2, mask_lr=1e-1, epochs=1000, verbose=True, lambda_reg=100,
+    gpt2, mask_lr=0.01, epochs=1, verbose=True, lambda_reg=100,
 ):
+    wandb.init(
+        project="subnetwork-probing",
+        entity="acdcremix",
+        config={"epochs": epochs, "mask_lr": mask_lr, "lambda_reg": lambda_reg},
+    )
+    sanity_check_with_transformer_lens(nodes_to_mask=[])
     # blackbox this bit
     ioi_dataset = IOIDataset(prompt_type="ABBA", N=N, nb_templates=1,)
     train_data = ioi_dataset.toks.long()
@@ -107,7 +124,9 @@ def train_ioi(
     assert len(gpt2_params) == 0, ("GPT2 should be empty", gpt2_params)
     trainer = torch.optim.Adam(mask_params, lr=mask_lr)
     log = []
-    for epoch in range(epochs):  # tqdm.notebook.tqdm(range(epochs)):
+    from tqdm import tqdm
+
+    for epoch in tqdm(range(epochs)):  # tqdm.notebook.tqdm(range(epochs)):
         gpt2.train()
         trainer.zero_grad()
         # compute loss, also log other metrics
@@ -127,35 +146,144 @@ def train_ioi(
         )
         trainer.step()
 
-        # warmup from 0 to lr_base for lr_warmup_frac
-        # lr_ratio = min(1, epoch / (lr_warmup_frac * epochs * len(train_data)))
-        # set_lr(lr_ratio)
-
-        # schedule lambda_reg - constant, then linear, then constant
-        # lambda_ratio = max(
-        #     0,
-        #     min(
-        #         1,
-        #         (epoch - lambda_startup_frac * epochs * len(train_data))
-        #         / (lambda_warmup_frac * epochs * len(train_data)),
-        #     ),
-        # )
-        # lambda_reg = lambda_init + (lambda_final - lambda_init) * lambda_ratio
-
         log.append({"loss_val": loss.item()})
         if epoch % 10 == 0:
-            visualize_mask(gpt2)
-    return log, gpt2
+            number_of_nodes, nodes_to_mask = visualize_mask(gpt2)
+    wandb.finish()
+    return log, gpt2, number_of_nodes, logit_diff_term
 
 
-def save_mask_scores(model, log, base="../test/mask_scores"):
-    keys = ["dev_acc", "reg_val"]
-    fname = base
-    for key in keys:
-        if key in log[-1].keys():
-            fname = fname + "_{}={:.4f}".format(key, log[-1][key] * 100)
-    fname = fname + ".pt"
+def sanity_check_with_transformer_lens(nodes_to_mask):
+    # blackbox this bit
+    ioi_dataset = IOIDataset(prompt_type="ABBA", N=N, nb_templates=1,)
+    train_data = ioi_dataset.toks.long()
+    gpt2 = HookedTransformer.from_pretrained("gpt2")
+    _ = logit_diff(gpt2, ioi_dataset)
+    # gpt2.freeze_weights()
+    # logits = gpt2(train_data)
+    # logit_diff = logit_diff_from_ioi_dataset(logits, train_data, mean=True)
+    # import ipdb
 
-    print("Saving to {}...".format(fname))
-    torch.save(partial_state_dict(model.state_dict()), fname)
-    print("Done saving")
+    # ipdb.set_trace()
+    # fwd_hooks = make_forward_hooks(nodes_to_mask)
+    # original_loss = gpt2(train_data, return_type="loss")
+    # ablated_loss = gpt2.run_with_hooks(
+    #     train_data, return_type="loss", fwd_hooks=fwd_hooks,
+    # )
+    # print("original loss", original_loss)
+    # print("ablated loss", ablated_loss)
+    # ablated_gpt2_logits = gpt2.run_with_hooks(
+    #     train_data, return_type="logits", fwd_hooks=fwd_hooks
+    # )
+    # print(
+    #     "ablated gpt2 logit diff",
+    #     logit_diff_from_ioi_dataset(ablated_gpt2_logits, train_data, mean=True),
+    # )
+    # import ipdb
+
+    # ipdb.set_trace()
+
+
+def logit_diff(
+    model, ioi_dataset, all=False, std=False, both=False,
+):  # changed by Arthur to take dataset object, :pray: no big backwards compatibility issues
+    """
+    Difference between the IO and the S logits at the "to" token
+    """
+
+    logits = model(ioi_dataset.toks.long()).detach()
+
+    # uhhhh, I guess logit sum is constatn, but the constant is -516763 which seems weird (not 0?)
+    # end_logits = logits[torch.arange(ioi_dataset.N), ioi_dataset.word_idx["end"], :]
+    # assert len(end_logits.shape) == 2, end_logits.shape
+    # assert torch.allclose(end_logits[0], end_logits[0] * 0.0)
+    # for i in range(10):
+    #     print(torch.sum(end_logits[i]))
+
+    IO_logits = logits[
+        torch.arange(len(ioi_dataset)),
+        ioi_dataset.word_idx["end"],
+        ioi_dataset.io_tokenIDs,
+    ]
+    S_logits = logits[
+        torch.arange(len(ioi_dataset)),
+        ioi_dataset.word_idx["end"],
+        ioi_dataset.s_tokenIDs,
+    ]
+    import ipdb
+
+    ipdb.set_trace()
+
+    # if both:
+    #     return (
+    #         handle_all_and_std(IO_logits, all, std),
+    #         handle_all_and_std(S_logits, all, std),
+    #     )
+
+    # else:
+    #     return handle_all_and_std(IO_logits - S_logits, all, std)
+
+
+def make_forward_hooks(nodes_to_mask):
+    forward_hooks = []
+    for node in nodes_to_mask:
+        layer = int(node.split(".")[0])
+        head = int(node.split(".")[1])
+        qkv = node.split(".")[2]
+
+        def head_ablation_hook(value, hook):
+            print(f"Shape of the value tensor: {value.shape}")
+            value[:, :, head, :] = 0.0
+            return value
+
+        a_hook = (utils.get_act_name(qkv, int(layer)), head_ablation_hook)
+        forward_hooks.append(a_hook)
+    return forward_hooks
+
+
+if __name__ == "__main__":
+    from transformer_lens.HookedTransformer import (
+        HookedTransformer,
+        # MaskedHookedTransformer,
+    )
+
+    regularization_params = [
+        # 1e4,
+        # 1e3,
+        1e2,
+        # 1e1,
+        # 1e0,
+        # 0.1,
+        # 0.01,
+        # 0.001,
+    ]
+    logit_diff_list = []
+    number_of_nodes_list = []
+
+    for a_regulation_param in regularization_params:
+        for task in ["IOI"]:
+            gpt2 = MaskedHookedTransformer.from_pretrained("gpt2")
+            gpt2.freeze_weights()
+            print("Finding subnetwork...")
+            assert task == "IOI"
+            log, model, number_of_nodes, logit_diff = train_ioi(
+                gpt2, lambda_reg=a_regulation_param
+            )
+            logit_diff_list.append(logit_diff * -1)
+            number_of_nodes_list.append(number_of_nodes)
+
+    wandb.init(project="pareto-subnetwork-probing", entity="acdcremix")
+    import plotly.express as px
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "x": number_of_nodes_list,
+            "y": [i.cpu().detach().item() for i in logit_diff_list],
+            "regularization_params": regularization_params,
+        }
+    )
+    plt = px.scatter(df, x="x", y="y", hover_data=["regularization_params"])
+    plt.update_layout(xaxis_title="Number of Nodes", yaxis_title="Logit Diff")
+    wandb.log({"number_of_nodes": plt})
+    wandb.finish()
