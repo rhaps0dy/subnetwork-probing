@@ -85,9 +85,6 @@ def logit_diff_from_ioi_dataset(
     io_labels = tokens[:, 2]
     s_labels = tokens[:, 4]
 
-    import ipdb
-
-    ipdb.set_trace()
     io_logits = logits[torch.arange(N), -2, io_labels]
     s_logits = logits[torch.arange(N), -2, s_labels]
 
