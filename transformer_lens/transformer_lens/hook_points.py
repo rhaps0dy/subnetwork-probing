@@ -99,9 +99,7 @@ class MaskedHookPoint(HookPoint):
     def __init__(self, mask_shape, mask_p=0.9, is_mlp=False):
         super().__init__()
         self.training = True  # assume always training for now
-        self.mask_scores = torch.nn.Parameter(
-            torch.ones(mask_shape)
-        )  # TODO: they do some clever initialisation
+        self.mask_scores = torch.nn.Parameter(torch.ones(mask_shape))
         self.beta = (
             2 / 3
         )  # TODO: make this hyperaparams globally set and synced somehow

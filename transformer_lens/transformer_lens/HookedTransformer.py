@@ -25,9 +25,7 @@ from transformer_lens.ActivationCache import ActivationCache
 from transformer_lens.FactoredMatrix import FactoredMatrix
 
 # Note - activation cache is used with run_with_cache, past_key_value_caching is used for generation.
-from transformer_lens.past_key_value_caching import (
-    HookedTransformerKeyValueCache,
-)
+from transformer_lens.past_key_value_caching import HookedTransformerKeyValueCache
 
 from transformer_lens.components import *
 import transformer_lens.loading_from_pretrained as loading
@@ -53,10 +51,7 @@ class HookedTransformer(HookedRootModule):
     """
 
     def __init__(
-        self,
-        cfg,
-        tokenizer=None,
-        move_to_device=True,
+        self, cfg, is_masked=False, tokenizer=None, move_to_device=True,
     ):
         """
         Model initialization. Note that if you want to load the model from pretrained weights, you should use the HookedTransformer.from_pretrained() class method instead of this one.
@@ -101,6 +96,7 @@ class HookedTransformer(HookedRootModule):
         if self.cfg.d_vocab_out == -1:
             self.cfg.d_vocab_out = self.cfg.d_vocab
 
+            is_this_still_super_slow = no
         self.embed = Embed(self.cfg)
         self.hook_embed = HookPoint()  # [batch, pos, d_model]
 
@@ -113,7 +109,7 @@ class HookedTransformer(HookedRootModule):
 
         self.blocks = nn.ModuleList(
             [
-                TransformerBlock(self.cfg, block_index)
+                TransformerBlock(self.cfg, is_masked, block_index)
                 for block_index in range(self.cfg.n_layers)
             ]
         )
@@ -148,6 +144,7 @@ class HookedTransformer(HookedRootModule):
         # Helper variable to store a small (10K-20K) dataset of training data. Empty by default, can be loaded with load_sample_training_dataset
         self.dataset = None
 
+        # ffs
         # Gives each module a parameter with its name (relative to this root module)
         # Needed for HookPoints to work
         self.setup()
@@ -266,6 +263,7 @@ class HookedTransformer(HookedRootModule):
         if self.cfg.use_hook_tokens:
             tokens = self.hook_tokens(tokens)
         embed = self.hook_embed(self.embed(tokens))  # [batch, pos, d_model]
+
         if self.cfg.positional_embedding_type == "standard":
             pos_embed = self.hook_pos_embed(
                 self.pos_embed(tokens, pos_offset)
@@ -619,6 +617,7 @@ class HookedTransformer(HookedRootModule):
     @classmethod
     def from_pretrained(
         cls,
+        is_masked: bool,
         model_name: str,
         fold_ln=True,
         center_writing_weights=True,
@@ -689,7 +688,7 @@ class HookedTransformer(HookedRootModule):
         )
 
         # Create the HookedTransformer object
-        model = cls(cfg, **model_kwargs)
+        model = cls(cfg, is_masked, **model_kwargs)
 
         model.load_and_process_state_dict(
             state_dict,
@@ -1504,8 +1503,8 @@ class HookedTransformer(HookedRootModule):
                 print(n, "is not frozen")
 
 
-class MaskedHookedTransformer(HookedTransformer):
-    def __init__(self, cfg, tokenizer=None, move_to_device=True):
-        super().__init__(cfg, tokenizer, move_to_device)
-        self.is_masked = True
-        self.is_new = True
+# class MaskedHookedTransformer(HookedTransformer):
+#     def __init__(self, cfg, tokenizer=None, move_to_device=True):
+#         super().__init__(cfg, tokenizer, move_to_device)
+#         self.is_masked = True
+#         self.is_new = True

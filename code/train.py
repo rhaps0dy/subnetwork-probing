@@ -2,7 +2,7 @@ import IPython
 import torch
 import torch.nn.functional as F
 import numpy as np
-from transformer_lens.HookedTransformer import MaskedHookedTransformer
+from transformer_lens.HookedTransformer import HookedTransformer
 from util import from_numpy, partial_state_dict
 from classifiers import POSModel, NERModel, UDModel
 from subnetwork_datasets import (
@@ -29,7 +29,7 @@ def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
     wandb.log({"mask_scores": fig})
 
 
-def visualize_mask(gpt2: MaskedHookedTransformer) -> None:
+def visualize_mask(gpt2: HookedTransformer) -> None:
     node_name = []
     mask_scores_for_names = []
     node_count = 0
@@ -54,7 +54,7 @@ def visualize_mask(gpt2: MaskedHookedTransformer) -> None:
 
 
 def regularizer(
-    gpt2: MaskedHookedTransformer,
+    gpt2: HookedTransformer,
     gamma: float = -0.1,
     zeta: float = 1.1,
     beta: float = 2 / 3,
@@ -96,14 +96,14 @@ def logit_diff_from_ioi_dataset(
 
 
 def train_ioi(
-    gpt2, mask_lr=0.01, epochs=1, verbose=True, lambda_reg=100,
+    gpt2, mask_lr=0.01, epochs=1000, verbose=True, lambda_reg=100,
 ):
     wandb.init(
         project="subnetwork-probing",
         entity="acdcremix",
         config={"epochs": epochs, "mask_lr": mask_lr, "lambda_reg": lambda_reg},
     )
-    sanity_check_with_transformer_lens(nodes_to_mask=[])
+    # sanity_check_with_transformer_lens(nodes_to_mask=[])
     # blackbox this bit
     ioi_dataset = IOIDataset(prompt_type="ABBA", N=N, nb_templates=1,)
     train_data = ioi_dataset.toks.long()
@@ -181,46 +181,6 @@ def sanity_check_with_transformer_lens(nodes_to_mask):
     # ipdb.set_trace()
 
 
-def logit_diff(
-    model, ioi_dataset, all=False, std=False, both=False,
-):  # changed by Arthur to take dataset object, :pray: no big backwards compatibility issues
-    """
-    Difference between the IO and the S logits at the "to" token
-    """
-
-    logits = model(ioi_dataset.toks.long()).detach()
-
-    # uhhhh, I guess logit sum is constatn, but the constant is -516763 which seems weird (not 0?)
-    # end_logits = logits[torch.arange(ioi_dataset.N), ioi_dataset.word_idx["end"], :]
-    # assert len(end_logits.shape) == 2, end_logits.shape
-    # assert torch.allclose(end_logits[0], end_logits[0] * 0.0)
-    # for i in range(10):
-    #     print(torch.sum(end_logits[i]))
-
-    IO_logits = logits[
-        torch.arange(len(ioi_dataset)),
-        ioi_dataset.word_idx["end"],
-        ioi_dataset.io_tokenIDs,
-    ]
-    S_logits = logits[
-        torch.arange(len(ioi_dataset)),
-        ioi_dataset.word_idx["end"],
-        ioi_dataset.s_tokenIDs,
-    ]
-    import ipdb
-
-    ipdb.set_trace()
-
-    # if both:
-    #     return (
-    #         handle_all_and_std(IO_logits, all, std),
-    #         handle_all_and_std(S_logits, all, std),
-    #     )
-
-    # else:
-    #     return handle_all_and_std(IO_logits - S_logits, all, std)
-
-
 def make_forward_hooks(nodes_to_mask):
     forward_hooks = []
     for node in nodes_to_mask:
@@ -254,12 +214,15 @@ if __name__ == "__main__":
         # 0.01,
         # 0.001,
     ]
+    is_masked = True
     logit_diff_list = []
     number_of_nodes_list = []
 
     for a_regulation_param in regularization_params:
         for task in ["IOI"]:
-            gpt2 = MaskedHookedTransformer.from_pretrained("gpt2")
+            gpt2 = HookedTransformer.from_pretrained(
+                is_masked=is_masked, model_name="gpt2"
+            )
             gpt2.freeze_weights()
             print("Finding subnetwork...")
             assert task == "IOI"

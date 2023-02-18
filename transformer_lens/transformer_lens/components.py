@@ -215,6 +215,7 @@ class Attention(nn.Module):
     def __init__(
         self,
         cfg: Union[Dict, HookedTransformerConfig],
+        is_masked: bool,
         attn_type: str = "global",
         layer_id: Optional[int] = None,
     ):
@@ -276,15 +277,14 @@ class Attention(nn.Module):
         if self.cfg.scale_attn_by_inverse_layer_idx:
             self.attn_scale *= self.layer_id + 1
 
-        self.hook_k = MaskedHookPoint(
-            mask_shape=(self.cfg.n_heads, 1)
-        )  # [batch, pos, head_index, d_head]
-        self.hook_q = MaskedHookPoint(
-            mask_shape=(self.cfg.n_heads, 1)
-        )  # [batch, pos, head_index, d_head]
-        self.hook_v = MaskedHookPoint(
-            mask_shape=(self.cfg.n_heads, 1)
-        )  # [batch, pos, head_index, d_head]
+        if is_masked:
+            self.hook_k = MaskedHookPoint(mask_shape=(self.cfg.n_heads, 1))
+            self.hook_q = MaskedHookPoint(mask_shape=(self.cfg.n_heads, 1))
+            self.hook_v = MaskedHookPoint(mask_shape=(self.cfg.n_heads, 1))
+        else:
+            self.hook_k = HookPoint()
+            self.hook_q = HookPoint()
+            self.hook_v = HookPoint()
         self.hook_z = HookPoint()  # [batch, pos, head_index, d_head]
         self.hook_attn_scores = HookPoint()  # [batch, head_index, query_pos, key_pos]
         self.hook_pattern = HookPoint()  # [batch, head_index, query_pos, key_pos]
@@ -642,7 +642,9 @@ class MLP(nn.Module):
 
 # Transformer Block
 class TransformerBlock(nn.Module):
-    def __init__(self, cfg: Union[Dict, HookedTransformerConfig], block_index):
+    def __init__(
+        self, cfg: Union[Dict, HookedTransformerConfig], is_masked: bool, block_index
+    ):
         super().__init__()
         if isinstance(cfg, Dict):
             cfg = HookedTransformerConfig.from_dict(cfg)
@@ -666,11 +668,11 @@ class TransformerBlock(nn.Module):
             )
 
         if not self.cfg.use_local_attn:
-            self.attn = Attention(cfg, "global", block_index)
+            self.attn = Attention(cfg, is_masked, "global", block_index)
         else:
             assert self.cfg.attn_types is not None
             attn_type = self.cfg.attn_types[block_index]
-            self.attn = Attention(cfg, attn_type, block_index)
+            self.attn = Attention(cfg, is_masked, attn_type, block_index)
         if not self.cfg.attn_only:
             self.mlp = MLP(cfg)
 
