@@ -96,14 +96,13 @@ def logit_diff_from_ioi_dataset(
 
 
 def train_ioi(
-    gpt2, mask_lr=0.01, epochs=1000, verbose=True, lambda_reg=100,
+    gpt2, mask_lr=0.01, epochs=10000, verbose=True, lambda_reg=100,
 ):
     wandb.init(
         project="subnetwork-probing",
         entity="acdcremix",
         config={"epochs": epochs, "mask_lr": mask_lr, "lambda_reg": lambda_reg},
     )
-    # sanity_check_with_transformer_lens(nodes_to_mask=[])
     # blackbox this bit
     ioi_dataset = IOIDataset(prompt_type="ABBA", N=N, nb_templates=1,)
     train_data = ioi_dataset.toks.long()
@@ -147,38 +146,22 @@ def train_ioi(
         if epoch % 10 == 0:
             number_of_nodes, nodes_to_mask = visualize_mask(gpt2)
     wandb.finish()
-    return log, gpt2, number_of_nodes, logit_diff_term
+    return log, gpt2, number_of_nodes, logit_diff_term, nodes_to_mask
 
 
 def sanity_check_with_transformer_lens(nodes_to_mask):
-    # blackbox this bit
     ioi_dataset = IOIDataset(prompt_type="ABBA", N=N, nb_templates=1,)
     train_data = ioi_dataset.toks.long()
-    gpt2 = HookedTransformer.from_pretrained("gpt2")
-    _ = logit_diff(gpt2, ioi_dataset)
-    # gpt2.freeze_weights()
-    # logits = gpt2(train_data)
-    # logit_diff = logit_diff_from_ioi_dataset(logits, train_data, mean=True)
-    # import ipdb
+    gpt2 = HookedTransformer.from_pretrained(is_masked=False, model_name="gpt2")
+    gpt2.freeze_weights()
+    logits = gpt2(train_data)
+    logit_diff = logit_diff_from_ioi_dataset(logits, train_data, mean=True)
 
-    # ipdb.set_trace()
-    # fwd_hooks = make_forward_hooks(nodes_to_mask)
-    # original_loss = gpt2(train_data, return_type="loss")
-    # ablated_loss = gpt2.run_with_hooks(
-    #     train_data, return_type="loss", fwd_hooks=fwd_hooks,
-    # )
-    # print("original loss", original_loss)
-    # print("ablated loss", ablated_loss)
-    # ablated_gpt2_logits = gpt2.run_with_hooks(
-    #     train_data, return_type="logits", fwd_hooks=fwd_hooks
-    # )
-    # print(
-    #     "ablated gpt2 logit diff",
-    #     logit_diff_from_ioi_dataset(ablated_gpt2_logits, train_data, mean=True),
-    # )
-    # import ipdb
-
-    # ipdb.set_trace()
+    fwd_hooks = make_forward_hooks(nodes_to_mask)
+    logits = gpt2.run_with_hooks(train_data, return_type="logits", fwd_hooks=fwd_hooks)
+    logit_diff_masked = logit_diff_from_ioi_dataset(logits, train_data, mean=True)
+    print("original logit diff", logit_diff)
+    print("masked logit diff", logit_diff_masked)
 
 
 def make_forward_hooks(nodes_to_mask):
@@ -226,11 +209,12 @@ if __name__ == "__main__":
             gpt2.freeze_weights()
             print("Finding subnetwork...")
             assert task == "IOI"
-            log, model, number_of_nodes, logit_diff = train_ioi(
+            log, model, number_of_nodes, logit_diff, nodes_to_mask = train_ioi(
                 gpt2, lambda_reg=a_regulation_param
             )
             logit_diff_list.append(logit_diff * -1)
             number_of_nodes_list.append(number_of_nodes)
+            sanity_check_with_transformer_lens(nodes_to_mask)
 
     wandb.init(project="pareto-subnetwork-probing", entity="acdcremix")
     import plotly.express as px
