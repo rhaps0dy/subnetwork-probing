@@ -48,6 +48,14 @@ def test_regularizer_can_optimize(masked_gpt2):
     assert next_loss.detach().cpu().numpy() < initial_loss.detach().cpu().numpy()
 
 
+def test_mask_is_not_binary(masked_gpt2):
+    mask_sample = masked_gpt2.blocks[
+        0
+    ].attn.hook_v.sample_mask()  # TODO: check all blocks eventually
+    for i in range(mask_sample.shape[0]):
+        assert mask_sample[i].cpu().item() == 1.0 or mask_sample[i].cpu().item() == 0.0
+
+
 # def sanity_check_with_transformer_lens(nodes_to_mask, gpt2):
 #     from train import logit_diff_from_ioi_dataset, make_forward_hooks, train_ioi
 
