@@ -29,27 +29,34 @@ def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
     wandb.log({"mask_scores": fig})
 
 
+# TODO: make sure this is good
+# TODO: implement a sample mask binary function to remove this as a possible issue -> confirmed its not this
+# TODO: maybe if lots of things are turned off, then slight non-binary things can change logit diff a lot? -> confirmed its not this
+# TODO: make sure that the weights are not changing -> confirmed its not this
+
+
 def visualize_mask(gpt2: HookedTransformer) -> None:
     node_name = []
     mask_scores_for_names = []
-    node_count = 0
+    total_nodes = 0
     nodes_to_mask = []
-    for name, param in gpt2.named_parameters():
-        if "mask_scores" in name:
-            if "attn" not in name:  # TODO: MLPs mask scores
-                import ipdb
+    for layer_index, layer in enumerate(gpt2.blocks):
+        for head in range(12):
+            for q_k_v in ["q", "k", "v"]:
+                total_nodes += 1
+                if q_k_v == "q":
 
-                ipdb.set_trace()
-            for head_index, mask_value in enumerate(param[:, 0]):
-                mask_scores_for_names.append(mask_value.detach().cpu().item())
-                layer = name.split(".")[1]
-                qkv = name.split(".")[3].split("_")[1]
-                node_name.append(f"{layer}.{head_index}.{qkv}")
-                if mask_scores_for_names[-1] > 0.0:
-                    node_count += 1
-                elif mask_scores_for_names[-1] < 0.0:
-                    nodes_to_mask.append(node_name[-1])
+                    if layer.attn.hook_q.sample_mask()[layer_index].cpu().item() < 0.5:
+                        nodes_to_mask.append(f"{layer_index}.{head}.{q_k_v}")
+                if q_k_v == "k":
+                    if layer.attn.hook_k.sample_mask()[layer_index].cpu().item() < 0.5:
+                        nodes_to_mask.append(f"{layer_index}.{head}.{q_k_v}")
+                if q_k_v == "v":
+                    if layer.attn.hook_v.sample_mask()[layer_index].cpu().item() < 0.5:
+                        nodes_to_mask.append(f"{layer_index}.{head}.{q_k_v}")
+
     log_plotly_bar_chart(x=node_name, y=mask_scores_for_names)
+    node_count = total_nodes - len(nodes_to_mask)
     return node_count, nodes_to_mask
 
 
@@ -150,10 +157,7 @@ def train_ioi(
 
 
 def sanity_check_with_transformer_lens(nodes_to_mask):
-    import ipdb
-
-    ipdb.set_trace()
-    ioi_dataset = IOIDataset(prompt_type="ABBA", N=N, nb_templates=1,)
+    ioi_dataset = IOIDataset(prompt_type="ABBA", N=N, nb_templates=1)
     train_data = ioi_dataset.toks.long()
     gpt2 = HookedTransformer.from_pretrained(is_masked=False, model_name="gpt2")
     gpt2.freeze_weights()
@@ -176,10 +180,10 @@ def make_forward_hooks(nodes_to_mask):
 
         def head_ablation_hook(value, hook):
             print(f"Shape of the value tensor: {value.shape}")
-            value[:, :, head, :] = 0.0
+            value[:, :, layer, :] = 0.0
             return value
 
-        a_hook = (utils.get_act_name(qkv, int(layer)), head_ablation_hook)
+        a_hook = (utils.get_act_name(qkv, int(head)), head_ablation_hook)
         forward_hooks.append(a_hook)
     return forward_hooks
 
