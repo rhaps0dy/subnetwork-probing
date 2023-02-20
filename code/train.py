@@ -122,7 +122,7 @@ def do_random_resample_caching(
 
 
 def train_ioi(
-    gpt2, mask_lr=0.01, epochs=1000, verbose=True, lambda_reg=100,
+    gpt2, mask_lr=0.01, epochs=10000, verbose=True, lambda_reg=100,
 ):
     wandb.init(
         project="subnetwork-probing",
@@ -242,6 +242,7 @@ def get_nodes_mask_dict(gpt2: HookedTransformer):
 
 
 if __name__ == "__main__":
+
     from transformer_lens.HookedTransformer import (
         HookedTransformer,
         # MaskedHookedTransformer,
@@ -278,6 +279,9 @@ if __name__ == "__main__":
             mask_val_dict = get_nodes_mask_dict(model)
             sanity_check_with_transformer_lens(mask_val_dict)
 
+    import ipdb
+
+    ipdb.set_trace()
     wandb.init(project="pareto-subnetwork-probing", entity="acdcremix")
     import plotly.express as px
     import pandas as pd
