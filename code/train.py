@@ -153,6 +153,7 @@ def train_ioi(
         if epoch % 10 == 0:
             number_of_nodes, nodes_to_mask = visualize_mask(gpt2)
     wandb.finish()
+    torch.save(gpt2.state_dict(), "masked_gpt2.pt")
     return log, gpt2, number_of_nodes, logit_diff_term, nodes_to_mask
 
 
