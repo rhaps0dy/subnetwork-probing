@@ -103,7 +103,7 @@ def logit_diff_from_ioi_dataset(
 
 
 def train_ioi(
-    gpt2, mask_lr=0.01, epochs=1000, verbose=True, lambda_reg=100,
+    gpt2, mask_lr=0.01, epochs=10000, verbose=True, lambda_reg=100,
 ):
     wandb.init(
         project="subnetwork-probing",
@@ -153,7 +153,10 @@ def train_ioi(
         if epoch % 10 == 0:
             number_of_nodes, nodes_to_mask = visualize_mask(gpt2)
     wandb.finish()
-    torch.save(gpt2.state_dict(), "masked_gpt2.pt")
+    import ipdb
+
+    ipdb.set_trace()
+    # torch.save(gpt2.state_dict(), "masked_gpt2.pt")
     return log, gpt2, number_of_nodes, logit_diff_term, nodes_to_mask
 
 
