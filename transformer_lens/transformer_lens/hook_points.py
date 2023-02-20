@@ -96,7 +96,7 @@ class HookPoint(nn.Module):
 
 
 class MaskedHookPoint(HookPoint):
-    def __init__(self, mask_shape, mask_p=0.9, is_mlp=False):
+    def __init__(self, mask_shape, name, mask_p=0.9, is_mlp=False):
         super().__init__()
         self.training = True  # assume always training for now
         self.mask_scores = torch.nn.Parameter(torch.ones(mask_shape))
@@ -106,8 +106,11 @@ class MaskedHookPoint(HookPoint):
         self.gamma = -0.1
         self.zeta = 1.1
         self.mask_p = 0.9
+        self.name = name
         self.is_mlp = is_mlp
         self.init_weights()
+        self.is_caching = False
+        self.cache = None
 
     def __repr__(self):
         return super().__repr__() + f" with mask_scores {self.mask_scores}"
@@ -133,29 +136,33 @@ class MaskedHookPoint(HookPoint):
         return mask
 
     def forward(self, x):
-        import einops
-
-        if not self.is_mlp:
-            assert x.shape[2] % self.mask_scores.shape[0] == 0
-            assert x.shape[3] % self.mask_scores.shape[1] == 0
-            assert len(x.shape) == 4
-
-        mask = self.sample_mask()
-        if self.is_mlp:
-            broadcasted_mask_scores = einops.repeat(
-                mask[:, 0],
-                "a-> c d a",
-                c=x.shape[0],
-                d=x.shape[1],  # TODO: not confident with this, needs review
-            )
+        if self.is_caching:
+            self.cache = x.cpu()
+            return x
         else:
-            broadcasted_mask_scores = einops.repeat(
-                mask,
-                "a b -> (a c) (b d)",
-                c=x.shape[2] // self.mask_scores.shape[0],
-                d=x.shape[3] // self.mask_scores.shape[1],
-            )
-        return x * broadcasted_mask_scores
+            import einops
+
+            if not self.is_mlp:
+                assert x.shape[2] % self.mask_scores.shape[0] == 0
+                assert x.shape[3] % self.mask_scores.shape[1] == 0
+                assert len(x.shape) == 4
+
+            mask = self.sample_mask()
+            if self.is_mlp:
+                broadcasted_mask_scores = einops.repeat(
+                    mask[:, 0],
+                    "a-> c d a",
+                    c=x.shape[0],
+                    d=x.shape[1],  # TODO: not confident with this, needs review
+                )
+            else:
+                broadcasted_mask_scores = einops.repeat(
+                    mask,
+                    "a b -> (a c) (b d)",
+                    c=x.shape[2] // self.mask_scores.shape[0],
+                    d=x.shape[3] // self.mask_scores.shape[1],
+                )
+            return x * broadcasted_mask_scores
 
 
 # %%

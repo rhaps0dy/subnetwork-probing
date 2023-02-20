@@ -148,6 +148,7 @@ class HookedTransformer(HookedRootModule):
         # Gives each module a parameter with its name (relative to this root module)
         # Needed for HookPoints to work
         self.setup()
+        self.is_caching = False
 
     @overload
     def forward(

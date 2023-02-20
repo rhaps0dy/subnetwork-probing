@@ -278,9 +278,15 @@ class Attention(nn.Module):
             self.attn_scale *= self.layer_id + 1
 
         if is_masked:
-            self.hook_k = MaskedHookPoint(mask_shape=(self.cfg.n_heads, 1))
-            self.hook_q = MaskedHookPoint(mask_shape=(self.cfg.n_heads, 1))
-            self.hook_v = MaskedHookPoint(mask_shape=(self.cfg.n_heads, 1))
+            self.hook_k = MaskedHookPoint(
+                mask_shape=(self.cfg.n_heads, 1), name=str(layer_id) + "k"
+            )
+            self.hook_q = MaskedHookPoint(
+                mask_shape=(self.cfg.n_heads, 1), name=str(layer_id) + "q"
+            )
+            self.hook_v = MaskedHookPoint(
+                mask_shape=(self.cfg.n_heads, 1), name=str(layer_id) + "v"
+            )
         else:
             self.hook_k = HookPoint()
             self.hook_q = HookPoint()
@@ -303,6 +309,16 @@ class Attention(nn.Module):
             )
             self.register_buffer("rotary_sin", sin)
             self.register_buffer("rotary_cos", cos)
+
+    def turn_caching_on(self):
+        self.hook_k.is_caching = True
+        self.hook_q.is_caching = True
+        self.hook_v.is_caching = True
+
+    def turn_caching_off(self):
+        self.hook_k.is_caching = False
+        self.hook_q.is_caching = False
+        self.hook_v.is_caching = False
 
     @property
     @lru_cache(maxsize=None)
@@ -643,7 +659,7 @@ class MLP(nn.Module):
 # Transformer Block
 class TransformerBlock(nn.Module):
     def __init__(
-        self, cfg: Union[Dict, HookedTransformerConfig], is_masked: bool, block_index
+        self, cfg: Union[Dict, HookedTransformerConfig], is_masked: bool, block_index,
     ):
         super().__init__()
         if isinstance(cfg, Dict):

@@ -18,6 +18,7 @@ import wandb
 import plotly
 from typing import List
 import transformer_lens.utils as utils
+from functools import partial
 
 N = 100
 
@@ -102,8 +103,26 @@ def logit_diff_from_ioi_dataset(
         return logit_diff
 
 
+def do_random_resample_caching(
+    gpt2: HookedTransformer, train_data: torch.Tensor
+) -> HookedTransformer:
+    for layer in gpt2.blocks:
+        layer.attn.hook_q.is_caching = True
+        layer.attn.hook_k.is_caching = True
+        layer.attn.hook_v.is_caching = True
+
+    _ = gpt2(train_data)
+
+    for layer in gpt2.blocks:
+        layer.attn.hook_q.is_caching = False
+        layer.attn.hook_k.is_caching = False
+        layer.attn.hook_v.is_caching = False
+
+    return gpt2
+
+
 def train_ioi(
-    gpt2, mask_lr=0.01, epochs=10000, verbose=True, lambda_reg=100,
+    gpt2, mask_lr=0.01, epochs=1000, verbose=True, lambda_reg=100,
 ):
     wandb.init(
         project="subnetwork-probing",
@@ -130,6 +149,7 @@ def train_ioi(
     from tqdm import tqdm
 
     for epoch in tqdm(range(epochs)):  # tqdm.notebook.tqdm(range(epochs)):
+        gpt2 = do_random_resample_caching(gpt2, train_data)
         gpt2.train()
         trainer.zero_grad()
         # compute loss, also log other metrics
@@ -153,14 +173,11 @@ def train_ioi(
         if epoch % 10 == 0:
             number_of_nodes, nodes_to_mask = visualize_mask(gpt2)
     wandb.finish()
-    import ipdb
-
-    ipdb.set_trace()
     # torch.save(gpt2.state_dict(), "masked_gpt2.pt")
     return log, gpt2, number_of_nodes, logit_diff_term, nodes_to_mask
 
 
-def sanity_check_with_transformer_lens(nodes_to_mask):
+def sanity_check_with_transformer_lens(mask_dict):
     ioi_dataset = IOIDataset(prompt_type="ABBA", N=N, nb_templates=1)
     train_data = ioi_dataset.toks.long()
     gpt2 = HookedTransformer.from_pretrained(is_masked=False, model_name="gpt2")
@@ -168,28 +185,60 @@ def sanity_check_with_transformer_lens(nodes_to_mask):
     logits = gpt2(train_data)
     logit_diff = logit_diff_from_ioi_dataset(logits, train_data, mean=True)
 
-    fwd_hooks = make_forward_hooks(nodes_to_mask)
+    fwd_hooks = make_forward_hooks(mask_dict)
     logits = gpt2.run_with_hooks(train_data, return_type="logits", fwd_hooks=fwd_hooks)
     logit_diff_masked = logit_diff_from_ioi_dataset(logits, train_data, mean=True)
     print("original logit diff", logit_diff)
     print("masked logit diff", logit_diff_masked)
 
 
-def make_forward_hooks(nodes_to_mask):
+def make_forward_hooks(mask_dict):
     forward_hooks = []
-    for node in nodes_to_mask:
-        layer = int(node.split(".")[0])
-        head = int(node.split(".")[1])
-        qkv = node.split(".")[2]
+    for layer in range(12):
+        for head in range(12):
+            for qkv in ["q", "k", "v"]:
+                mask_value = mask_dict[f"{layer}.{head}.{qkv}"]
 
-        def head_ablation_hook(value, hook):
-            print(f"Shape of the value tensor: {value.shape}")
-            value[:, :, layer, :] = 0.0
-            return value
+                def head_ablation_hook(
+                    value, hook, head_idx, layer_idx, qkv_val, mask_value
+                ):
+                    value[:, :, head_idx, :] *= mask_value
+                    return value
 
-        a_hook = (utils.get_act_name(qkv, int(head)), head_ablation_hook)
-        forward_hooks.append(a_hook)
+                a_hook = (
+                    utils.get_act_name(qkv, int(layer)),
+                    partial(
+                        head_ablation_hook,
+                        head_idx=head,
+                        layer_idx=layer,
+                        qkv_val=qkv,
+                        mask_value=mask_value,
+                    ),
+                )
+                forward_hooks.append(a_hook)
     return forward_hooks
+
+
+def get_nodes_mask_dict(gpt2: HookedTransformer):
+    mask_value_dict = {}
+    for layer_index, layer in enumerate(gpt2.blocks):
+        for head_index in range(12):
+            for q_k_v in ["q", "k", "v"]:
+                # total_nodes += 1
+                if q_k_v == "q":
+                    mask_value = (
+                        layer.attn.hook_q.sample_mask()[head_index].cpu().item()
+                    )
+                if q_k_v == "k":
+                    mask_value = (
+                        layer.attn.hook_k.sample_mask()[head_index].cpu().item()
+                    )
+                if q_k_v == "v":
+                    mask_value = (
+                        layer.attn.hook_v.sample_mask()[head_index].cpu().item()
+                    )
+                mask_value_dict[f"{layer_index}.{head_index}.{q_k_v}"] = mask_value
+    return mask_value_dict
 
 
 if __name__ == "__main__":
@@ -226,7 +275,8 @@ if __name__ == "__main__":
             print("nodes to mask", nodes_to_mask)
             logit_diff_list.append(logit_diff * -1)
             number_of_nodes_list.append(number_of_nodes)
-            sanity_check_with_transformer_lens(nodes_to_mask)
+            mask_val_dict = get_nodes_mask_dict(model)
+            sanity_check_with_transformer_lens(mask_val_dict)
 
     wandb.init(project="pareto-subnetwork-probing", entity="acdcremix")
     import plotly.express as px
