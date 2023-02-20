@@ -136,7 +136,11 @@ class MaskedHookPoint(HookPoint):
         return mask
 
     def forward(self, x):
+
         if self.is_caching:
+            indices = list(range(len(x)))
+            random_indices = np.random.shuffle(indices)
+            x = x[random_indices]
             self.cache = x.cpu()
             return x
         else:
@@ -162,7 +166,11 @@ class MaskedHookPoint(HookPoint):
                     c=x.shape[2] // self.mask_scores.shape[0],
                     d=x.shape[3] // self.mask_scores.shape[1],
                 )
-            return x * broadcasted_mask_scores
+            interpolation = (
+                broadcasted_mask_scores * self.cache.to("cuda:0")
+                + (1 - broadcasted_mask_scores) * x
+            )
+            return interpolation
 
 
 # %%
