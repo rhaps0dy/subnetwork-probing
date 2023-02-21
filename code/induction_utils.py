@@ -3,21 +3,19 @@ import pickle
 from typing import Tuple
 
 import einops
-import rust_circuits as rc
+import rust_circuit as rc
 import torch
 from interp.circuit.causal_scrubbing.dataset import Dataset
-from interp.circuit.interop_rust.model_rewrites import (To,
-                                                        configure_transformer)
+from interp.circuit.interop_rust.model_rewrites import To, configure_transformer
 from interp.circuit.interop_rust.module_library import load_model_id
-from interp.circuit.projects.gpt2_gen_induction.rust_path_patching import \
-    make_arr
+from interp.circuit.projects.gpt2_gen_induction.rust_path_patching import make_arr
 from interp.tools.data_loading import get_val_seqs
 from interp.tools.indexer import TORCH_INDEXER as I
 from interp.tools.rrfs import RRFS_DIR
 from transformer_lens import HookedTransformer
 
 
-def get_induction_dataset() -> Tuple[Dataset, torch.Tensor]:
+def get_induction_dataset():
     try:
         with open(
             os.path.expanduser("~/induction/data/masks/mask_repeat_candidates.pkl"),
@@ -104,7 +102,6 @@ def get_induction_dataset() -> Tuple[Dataset, torch.Tensor]:
         for s, c in circ_dict.items()
     }
 
-
     default_input = toks_int_values.rename("tokens")
     default_output = toks_int_labels.rename("labels")
 
@@ -116,14 +113,21 @@ def get_induction_dataset() -> Tuple[Dataset, torch.Tensor]:
     patch_output = default_output  # oo cares..
 
     default_ds = Dataset({"tokens": default_input, "labels": default_output})
-    patch_ds = Dataset({"tokens": patch_input, "labels": patch_output})
-    return default_ds.tokens.evaluate(), default_ds, circ_dict, model_info
+    # patched_ds = Dataset({"tokens": patch_input, "labels": patch_output})
+    return (
+        default_ds.tokens.evaluate(),
+        default_ds,
+        circ_dict,
+        model_info,
+        mask_reshaped,
+    )
+
 
 def get_induction_model() -> HookedTransformer:
     SEQ_LEN = 300
     tokens_device_dtype = rc.TorchDeviceDtype(device="cuda", dtype="int64")
 
-    _, default_ds, circ_dict, model_info = get_induction_dataset()
+    _, default_ds, circ_dict, model_info, _ = get_induction_dataset()
     orig_circuit = circ_dict["t.bind_w"]
     tok_embeds = circ_dict["t.w.tok_embeds"]
     pos_embeds = circ_dict["t.w.pos_embeds"]
@@ -132,8 +136,6 @@ def get_induction_model() -> HookedTransformer:
 
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
     tokenizer("Hello world")["input_ids"]
-    [15496, 995]
-
 
     assert (
         model_info.causal_mask
@@ -165,7 +167,6 @@ def get_induction_model() -> HookedTransformer:
         ("a.pos_input", pos_embeds),
         name="t.call",
     )
-
 
     # CHECK
     model = model.update(
@@ -270,8 +271,7 @@ def get_induction_model() -> HookedTransformer:
     """
 
     import transformer_lens
-    from transformer_lens.HookedTransformerConfig import \
-        HookedTransformerConfig
+    from transformer_lens.HookedTransformerConfig import HookedTransformerConfig
 
     cfg = HookedTransformerConfig(
         n_layers=2,

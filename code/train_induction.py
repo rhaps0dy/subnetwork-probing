@@ -7,12 +7,11 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 import wandb
-from interp.circuit.interop_rust.model_rewrites import (To,
-                                                        configure_transformer)
+from interp.circuit.interop_rust.model_rewrites import To, configure_transformer
 from interp.circuit.interop_rust.module_library import load_model_id
 from interp.tools.indexer import TORCH_INDEXER as I
 
-from induction_utils import get_induction_model
+from induction_utils import get_induction_model, get_induction_dataset
 
 if IPython.get_ipython() is not None:
     IPython.get_ipython().run_line_magic("load_ext", "autoreload")  # type: ignore
@@ -26,15 +25,17 @@ import rust_circuit as rc
 import transformer_lens.utils as utils
 import wandb
 from interp.circuit.causal_scrubbing.dataset import Dataset
-from interp.circuit.interop_rust.model_rewrites import (To,
-                                                        configure_transformer)
+from interp.circuit.interop_rust.model_rewrites import To, configure_transformer
 from interp.circuit.interop_rust.module_library import load_model_id
-from interp.circuit.projects.gpt2_gen_induction.rust_path_patching import \
-    make_arr
+from interp.circuit.projects.gpt2_gen_induction.rust_path_patching import make_arr
 from interp.tools.data_loading import get_val_seqs
 from tqdm import tqdm
 from transformer_lens.HookedTransformer import HookedTransformer
 from transformer_lens.ioi_dataset import IOIDataset
+
+
+SEQ_LEN = 300
+NUM_EXAMPLES = 40
 
 
 def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
@@ -89,7 +90,9 @@ def regularizer(
     return torch.mean(torch.stack(mask_scores))
 
 
-def negative_log_probs(dataset: Dataset, logits: torch.Tensor,) -> float:
+def negative_log_probs(
+    dataset: Dataset, logits: torch.Tensor, mask_reshaped: torch.Tensor
+) -> float:
     """NOTE: this average over all sequence positions, I'm unsure why..."""
     labels = dataset.arrs["labels"].evaluate()
     probs = F.softmax(logits, dim=-1)
@@ -107,6 +110,7 @@ def negative_log_probs(dataset: Dataset, logits: torch.Tensor,) -> float:
         mask_reshaped.shape,
         log_probs.shape,
     )
+    denom = mask_reshaped.int().sum().item()
 
     masked_log_probs = log_probs * mask_reshaped.int()
     result = (-1.0 * float(masked_log_probs.sum())) / denom
@@ -141,7 +145,7 @@ def train_induction(
         entity="acdcremix",
         config={"epochs": epochs, "mask_lr": mask_lr, "lambda_reg": lambda_reg},
     )
-    train_data_tensor, dataset = get_induction_dataset()
+    train_data_tensor, dataset, _, _, mask_reshaped = get_induction_dataset()
 
     # one parameter per thing that is masked
     mask_params = [
@@ -165,7 +169,7 @@ def train_induction(
         trainer.zero_grad()
         # compute loss, also log other metrics
         logit_diff_term = negative_log_probs(
-            dataset, induction_model(train_data_tensor)
+            dataset, induction_model(train_data_tensor), mask_reshaped
         )
         regularizer_term = regularizer(induction_model)
         loss = logit_diff_term + lambda_reg * regularizer_term
