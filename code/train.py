@@ -19,6 +19,7 @@ import plotly
 from typing import List
 import transformer_lens.utils as utils
 from functools import partial
+from typing import Dict
 
 N = 100
 
@@ -219,6 +220,16 @@ def make_forward_hooks(mask_dict):
     return forward_hooks
 
 
+def log_percentage_binary(mask_val_dict: Dict) -> float:
+    binary_count = 0
+    total_count = 0
+    for _, v in mask_val_dict.items():
+        total_count += 1
+        if v == 0 or v == 1:
+            binary_count += 1
+    return binary_count / total_count
+
+
 def get_nodes_mask_dict(gpt2: HookedTransformer):
     mask_value_dict = {}
     for layer_index, layer in enumerate(gpt2.blocks):
@@ -249,15 +260,12 @@ if __name__ == "__main__":
     )
 
     regularization_params = [
-        # 1e4,
-        # 1e3,
-        1e2,
-        # 1e1,
-        # 1e0,
-        # 0.1,
-        # 0.01,
-        # 0.001,
+        9e3,
+        7.5e3,
+        5e3,
+        2.5e3,
     ]
+
     is_masked = True
     logit_diff_list = []
     number_of_nodes_list = []
@@ -277,11 +285,9 @@ if __name__ == "__main__":
             logit_diff_list.append(logit_diff * -1)
             number_of_nodes_list.append(number_of_nodes)
             mask_val_dict = get_nodes_mask_dict(model)
+            log_percentage_binary(mask_val_dict)
             sanity_check_with_transformer_lens(mask_val_dict)
 
-    import ipdb
-
-    ipdb.set_trace()
     wandb.init(project="pareto-subnetwork-probing", entity="acdcremix")
     import plotly.express as px
     import pandas as pd

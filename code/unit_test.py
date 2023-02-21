@@ -48,12 +48,43 @@ def test_regularizer_can_optimize(masked_gpt2):
     assert next_loss.detach().cpu().numpy() < initial_loss.detach().cpu().numpy()
 
 
-def test_mask_is_not_binary(masked_gpt2):
+def test_mask_is_binary(masked_gpt2):
     mask_sample = masked_gpt2.blocks[
         0
-    ].attn.hook_v.sample_mask()  # TODO: check all blocks eventually
+    ].attn.hook_v.sample_mask()  # TODO: check all blocks eventually, importantly this fails mask != binary
     for i in range(mask_sample.shape[0]):
         assert mask_sample[i].cpu().item() == 1.0 or mask_sample[i].cpu().item() == 0.0
+
+
+def test_log_percentage_binary():
+    from train import log_percentage_binary
+
+    mask_dict = {
+        "0.1.k": 0.0,
+        "0.1.v": 0.0,
+        "2.1.q": 1.0,
+        "1.1.v": 0.0,
+        "1.2.v": 0.02304837,
+    }
+    assert log_percentage_binary(mask_dict) == 4 / 5
+
+    mask_dict = {
+        "0.1.k": 0.0,
+        "0.1.v": 1,
+        "2.1.q": 0.0,
+        "1.1.v": 0.0,
+        "1.2.v": 0,
+    }
+    assert log_percentage_binary(mask_dict) == 1
+
+    mask_dict = {
+        "0.1.k": 0.111,
+        "0.1.v": 0.99999,
+        "2.1.q": 0.1,
+        "1.1.v": 0.2,
+        "1.4.v": 0.3,
+    }
+    assert log_percentage_binary(mask_dict) == 0
 
 
 # def sanity_check_with_transformer_lens(nodes_to_mask, gpt2):
