@@ -1,9 +1,9 @@
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
 from pytorch_transformers import BertModel, BertTokenizer
 
-from util import use_cuda, from_numpy
+from util import from_numpy, use_cuda
 
 
 def unpack(ann, sent_lengths):

@@ -1,14 +1,11 @@
-import torch
 import numpy as np
+import torch
+from pytorch_transformers.modeling_bert import (BertIntermediate, BertOutput,
+                                                BertSelfAttention,
+                                                BertSelfOutput)
 
-from pytorch_transformers.modeling_bert import (
-    BertSelfAttention,
-    BertSelfOutput,
-    BertIntermediate,
-    BertOutput,
-)
-from masked_linear import MaskedLinear
 from bert import WordLevelBert
+from masked_linear import MaskedLinear
 from util import use_cuda
 
 

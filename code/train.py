@@ -1,25 +1,20 @@
+from functools import partial
+from typing import Dict, List
+
 import IPython
+import numpy as np
+import plotly
 import torch
 import torch.nn.functional as F
-import numpy as np
-from transformer_lens.HookedTransformer import HookedTransformer
-from util import from_numpy, partial_state_dict
-from classifiers import POSModel, NERModel, UDModel
-from subnetwork_datasets import (
-    load_conllu,
-    build_vocab,
-    sent_avgs,
-    masked_loss,
-    evaluate,
-    load_ner,
-)
-from transformer_lens.ioi_dataset import IOIDataset
-import wandb
-import plotly
-from typing import List
 import transformer_lens.utils as utils
-from functools import partial
-from typing import Dict
+import wandb
+from transformer_lens.HookedTransformer import HookedTransformer
+from transformer_lens.ioi_dataset import IOIDataset
+
+from classifiers import NERModel, POSModel, UDModel
+from subnetwork_datasets import (build_vocab, evaluate, load_conllu, load_ner,
+                                 masked_loss, sent_avgs)
+from util import from_numpy, partial_state_dict
 
 N = 100
 
@@ -29,12 +24,6 @@ def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
 
     fig = go.Figure(data=[go.Bar(x=x, y=y)])
     wandb.log({"mask_scores": fig})
-
-
-# TODO: make sure this is good
-# TODO: implement a sample mask binary function to remove this as a possible issue -> confirmed its not this
-# TODO: maybe if lots of things are turned off, then slight non-binary things can change logit diff a lot? -> confirmed its not this
-# TODO: make sure that the weights are not changing -> confirmed its not this
 
 
 def visualize_mask(gpt2: HookedTransformer) -> None:
@@ -254,10 +243,7 @@ def get_nodes_mask_dict(gpt2: HookedTransformer):
 
 if __name__ == "__main__":
 
-    from transformer_lens.HookedTransformer import (
-        HookedTransformer,
-        # MaskedHookedTransformer,
-    )
+    from transformer_lens.HookedTransformer import HookedTransformer
 
     regularization_params = [
         9e3,
@@ -285,12 +271,12 @@ if __name__ == "__main__":
             logit_diff_list.append(logit_diff * -1)
             number_of_nodes_list.append(number_of_nodes)
             mask_val_dict = get_nodes_mask_dict(model)
-            log_percentage_binary(mask_val_dict)
+            wandb.log({"percentage_binary": log_percentage_binary(mask_val_dict)})
             sanity_check_with_transformer_lens(mask_val_dict)
 
     wandb.init(project="pareto-subnetwork-probing", entity="acdcremix")
-    import plotly.express as px
     import pandas as pd
+    import plotly.express as px
 
     df = pd.DataFrame(
         {

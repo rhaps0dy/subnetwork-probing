@@ -1,11 +1,11 @@
-import numpy as np
-import torch
 from collections import defaultdict
 
 import nltk
+import numpy as np
+import torch
 
 nltk.download("punkt")
-from nltk.tokenize import word_tokenize, sent_tokenize
+from nltk.tokenize import sent_tokenize, word_tokenize
 
 
 def load_ner(path, tag2i, maxlen=128):

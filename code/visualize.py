@@ -1,7 +1,8 @@
-import numpy as np
-from matplotlib import pyplot as plt
-import torch
 from operator import attrgetter
+
+import numpy as np
+import torch
+from matplotlib import pyplot as plt
 
 
 def visualize_head_sparsity(model, path, block=False, layers=12, heads=12):

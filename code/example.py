@@ -1,8 +1,7 @@
-from transformer_lens.HookedTransformer import (
-    MaskedHookedTransformer,
-    HookedTransformer,
-)
+from transformer_lens.HookedTransformer import (HookedTransformer,
+                                                MaskedHookedTransformer)
 from transformer_lens.ioi_dataset import IOIDataset
+
 from train import logit_diff_from_ioi_dataset
 
 gpt2 = HookedTransformer.from_pretrained("gpt2")

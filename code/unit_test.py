@@ -1,7 +1,8 @@
-import pytest
-from transformer_lens.HookedTransformer import HookedTransformer
-import torch
 import math
+
+import pytest
+import torch
+from transformer_lens.HookedTransformer import HookedTransformer
 from transformer_lens.ioi_dataset import IOIDataset
 
 
@@ -17,6 +18,7 @@ def gpt2():
 
 def test_ioi_logit_diff(gpt2):
     from transformer_lens.ioi_dataset import IOIDataset
+
     from train import logit_diff_from_ioi_dataset
 
     ioi_dataset = IOIDataset(prompt_type="ABBA", N=100, nb_templates=1,)

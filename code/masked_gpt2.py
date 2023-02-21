@@ -1,7 +1,7 @@
+import numpy as np
+import torch
 from transformer_lens.HookedTransformer import MaskedHookedTransformer
 from transformer_lens.ioi_dataset import IOIDataset
-import torch
-import numpy as np
 
 # import IPython
 

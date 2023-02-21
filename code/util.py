@@ -1,5 +1,6 @@
-import torch
 from collections import OrderedDict
+
+import torch
 
 use_cuda = torch.cuda.is_available()
 if use_cuda:
