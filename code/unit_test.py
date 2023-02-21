@@ -124,11 +124,20 @@ def test_do_random_resample_caching(gpt2, masked_gpt2, ioi_data):
     ) -> bool:
         assert our_cache.shape == transformer_lens_cache.shape
         random_representation = our_cache[np.random.choice(our_cache.shape[0])]
-        for _, representation in enumerate(our_cache):
-            if torch.equal(random_representation, representation):
+        mse_list = []
+        for _, representation in enumerate(transformer_lens_cache):
+            mse_list.append(
+                torch.nn.functional.mse_loss(random_representation, representation)
+            )
+            if torch.equal(random_representation, representation.detach()):
                 return True
             else:
+
                 print("Not equal", random_representation, representation)
+
+        import ipdb
+
+        ipdb.set_trace()
         return False
 
     _, gpt2_cache = gpt2.run_with_cache(ioi_data)
