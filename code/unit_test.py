@@ -16,6 +16,13 @@ def gpt2():
     return HookedTransformer.from_pretrained(is_masked=False, model_name="gpt2")
 
 
+@pytest.fixture
+def ioi_data():
+    ioi_dataset = IOIDataset(prompt_type="ABBA", N=N, nb_templates=1)
+    train_data = ioi_dataset.toks.long()
+    return train_data
+
+
 def test_ioi_logit_diff(gpt2):
     from transformer_lens.ioi_dataset import IOIDataset
 
@@ -87,6 +94,28 @@ def test_log_percentage_binary():
         "1.4.v": 0.3,
     }
     assert log_percentage_binary(mask_dict) == 0
+
+
+def test_do_random_resample_caching(masked_gpt2, ioi_data):
+    from train import do_random_resample_caching
+
+    for a_block in masked_gpt2.blocks:
+        assert a_block.attn.hook_v.cache is None
+        assert a_block.attn.hook_q.cache is None
+        assert a_block.attn.hook_k.cache is None
+
+    masked_gpt2 = do_random_resample_caching(masked_gpt2, ioi_data)
+
+    ioi_data_shape = ioi_data.shape
+    for a_block in masked_gpt2.blocks:
+        assert a_block.attn.hook_v.cache.shape == (
+            ioi_data_shape[0],
+            ioi_data_shape[1],
+            masked_gpt2.config.n_head,
+            masked_gpt2.config.n_embd,
+        )
+        assert a_block.attn.hook_q.cache is not None
+        assert a_block.attn.hook_k.cache is not None
 
 
 # def sanity_check_with_transformer_lens(nodes_to_mask, gpt2):

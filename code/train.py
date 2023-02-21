@@ -12,8 +12,14 @@ from transformer_lens.HookedTransformer import HookedTransformer
 from transformer_lens.ioi_dataset import IOIDataset
 
 from classifiers import NERModel, POSModel, UDModel
-from subnetwork_datasets import (build_vocab, evaluate, load_conllu, load_ner,
-                                 masked_loss, sent_avgs)
+from subnetwork_datasets import (
+    build_vocab,
+    evaluate,
+    load_conllu,
+    load_ner,
+    masked_loss,
+    sent_avgs,
+)
 from util import from_numpy, partial_state_dict
 
 N = 100
@@ -112,7 +118,7 @@ def do_random_resample_caching(
 
 
 def train_ioi(
-    gpt2, mask_lr=0.01, epochs=10000, verbose=True, lambda_reg=100,
+    gpt2, mask_lr=0.01, epochs=2000, verbose=True, lambda_reg=100,
 ):
     wandb.init(
         project="subnetwork-probing",
@@ -162,7 +168,7 @@ def train_ioi(
         log.append({"loss_val": loss.item()})
         if epoch % 10 == 0:
             number_of_nodes, nodes_to_mask = visualize_mask(gpt2)
-    wandb.finish()
+    # wandb.finish()
     # torch.save(gpt2.state_dict(), "masked_gpt2.pt")
     return log, gpt2, number_of_nodes, logit_diff_term, nodes_to_mask
 
@@ -246,15 +252,26 @@ if __name__ == "__main__":
     from transformer_lens.HookedTransformer import HookedTransformer
 
     regularization_params = [
-        9e3,
-        7.5e3,
-        5e3,
-        2.5e3,
+        1e3,
+        700,
+        675,
+        650,
+        625,
+        600,
+        575,
+        525,
+        500,
+        550,
+        1e2,
+        1e0,
+        1e-1,
+        1e-2,
     ]
 
     is_masked = True
     logit_diff_list = []
     number_of_nodes_list = []
+    percentage_binary_list = []
 
     for a_regulation_param in regularization_params:
         for task in ["IOI"]:
@@ -271,8 +288,11 @@ if __name__ == "__main__":
             logit_diff_list.append(logit_diff * -1)
             number_of_nodes_list.append(number_of_nodes)
             mask_val_dict = get_nodes_mask_dict(model)
-            wandb.log({"percentage_binary": log_percentage_binary(mask_val_dict)})
+            percentage_binary = log_percentage_binary(mask_val_dict)
+            wandb.log({"percentage_binary": percentage_binary})
+            percentage_binary_list.append(percentage_binary)
             sanity_check_with_transformer_lens(mask_val_dict)
+            wandb.finish()
 
     wandb.init(project="pareto-subnetwork-probing", entity="acdcremix")
     import pandas as pd
@@ -283,9 +303,12 @@ if __name__ == "__main__":
             "x": number_of_nodes_list,
             "y": [i.cpu().detach().item() for i in logit_diff_list],
             "regularization_params": regularization_params,
+            "percentage_binary": percentage_binary_list,
         }
     )
-    plt = px.scatter(df, x="x", y="y", hover_data=["regularization_params"])
+    plt = px.scatter(
+        df, x="x", y="y", hover_data=["regularization_params", "percentage_binary"]
+    )
     plt.update_layout(xaxis_title="Number of Nodes", yaxis_title="Logit Diff")
     wandb.log({"number_of_nodes": plt})
     wandb.finish()
