@@ -51,7 +51,7 @@ def visualize_mask(gpt2: HookedTransformer) -> None:
     total_nodes = 0
     nodes_to_mask = []
     for layer_index, layer in enumerate(gpt2.blocks):
-        for head in range(12):
+        for head in range(8):
             for q_k_v in ["q", "k", "v"]:
                 total_nodes += 1
                 if q_k_v == "q":
@@ -113,7 +113,7 @@ def negative_log_probs(
     denom = mask_reshaped.int().sum().item()
 
     masked_log_probs = log_probs * mask_reshaped.int()
-    result = (-1.0 * float(masked_log_probs.sum())) / denom
+    result = (-1.0 * (masked_log_probs.sum())) / denom
 
     print("Result", result, denom)
     return result
@@ -209,8 +209,8 @@ def sanity_check_with_transformer_lens(mask_dict):
 
 def make_forward_hooks(mask_dict):
     forward_hooks = []
-    for layer in range(12):
-        for head in range(12):
+    for layer in range(2):
+        for head in range(8):
             for qkv in ["q", "k", "v"]:
                 mask_value = mask_dict[f"{layer}.{head}.{qkv}"]
 
@@ -247,7 +247,7 @@ def log_percentage_binary(mask_val_dict: Dict) -> float:
 def get_nodes_mask_dict(gpt2: HookedTransformer):
     mask_value_dict = {}
     for layer_index, layer in enumerate(gpt2.blocks):
-        for head_index in range(12):
+        for head_index in range(8):
             for q_k_v in ["q", "k", "v"]:
                 # total_nodes += 1
                 if q_k_v == "q":
@@ -269,12 +269,16 @@ def get_nodes_mask_dict(gpt2: HookedTransformer):
 if __name__ == "__main__":
     model = get_induction_model()
     regularization_params = [
-        1e1,
-        1e2,
-        300,
-        500,
-        700,
-        1e3,
+        1e-4,
+        1e-3,
+        1e-2,
+        1e-1,
+        # 1e1,
+        # 1e2,
+        # 300,
+        # 500,
+        # 700,
+        # 1e3,
     ]
 
     is_masked = True
