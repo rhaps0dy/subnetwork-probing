@@ -1,5 +1,5 @@
 import math
-
+import numpy as np
 import pytest
 import torch
 from transformer_lens.HookedTransformer import HookedTransformer
@@ -18,7 +18,7 @@ def gpt2():
 
 @pytest.fixture
 def ioi_data():
-    ioi_dataset = IOIDataset(prompt_type="ABBA", N=N, nb_templates=1)
+    ioi_dataset = IOIDataset(prompt_type="ABBA", N=100, nb_templates=1)
     train_data = ioi_dataset.toks.long()
     return train_data
 
@@ -96,7 +96,7 @@ def test_log_percentage_binary():
     assert log_percentage_binary(mask_dict) == 0
 
 
-def test_do_random_resample_caching(masked_gpt2, ioi_data):
+def test_do_random_resample_caching(gpt2, masked_gpt2, ioi_data):
     from train import do_random_resample_caching
 
     for a_block in masked_gpt2.blocks:
@@ -106,16 +106,50 @@ def test_do_random_resample_caching(masked_gpt2, ioi_data):
 
     masked_gpt2 = do_random_resample_caching(masked_gpt2, ioi_data)
 
-    ioi_data_shape = ioi_data.shape
-    for a_block in masked_gpt2.blocks:
-        assert a_block.attn.hook_v.cache.shape == (
-            ioi_data_shape[0],
-            ioi_data_shape[1],
-            masked_gpt2.config.n_head,
-            masked_gpt2.config.n_embd,
+    def check_cache_shape(cache: torch.Tensor) -> bool:
+        return cache.shape == (
+            ioi_data.shape[0],
+            ioi_data.shape[1],
+            masked_gpt2.cfg.n_heads,
+            masked_gpt2.cfg.d_head,
         )
-        assert a_block.attn.hook_q.cache is not None
-        assert a_block.attn.hook_k.cache is not None
+
+    for a_block in masked_gpt2.blocks:
+        assert check_cache_shape(a_block.attn.hook_v.cache)
+        assert check_cache_shape(a_block.attn.hook_q.cache)
+        assert check_cache_shape(a_block.attn.hook_k.cache)
+
+    def cache_representations_equal(
+        our_cache: torch.Tensor, transformer_lens_cache: torch.Tensor
+    ) -> bool:
+        assert our_cache.shape == transformer_lens_cache.shape
+        random_representation = our_cache[np.random.choice(our_cache.shape[0])]
+        for _, representation in enumerate(our_cache):
+            if torch.equal(random_representation, representation):
+                return True
+            else:
+                print("Not equal", random_representation, representation)
+        return False
+
+    _, gpt2_cache = gpt2.run_with_cache(ioi_data)
+
+    example_cache_location = "blocks.8.attn.hook_q"
+    transformer_lens_cache = gpt2_cache[example_cache_location].cpu().detach()
+    assert cache_representations_equal(
+        transformer_lens_cache, masked_gpt2.blocks[8].attn.hook_q.cache
+    )
+
+    example_cache_location = "blocks.2.attn.hook_v"
+    transformer_lens_cache = gpt2_cache[example_cache_location].cpu().detach()
+    assert cache_representations_equal(
+        transformer_lens_cache, masked_gpt2.blocks[2].attn.hook_v.cache
+    )
+
+    example_cache_location = "blocks.10.attn.hook_k"
+    transformer_lens_cache = gpt2_cache[example_cache_location].cpu().detach()
+    assert cache_representations_equal(
+        transformer_lens_cache, masked_gpt2.blocks[10].attn.hook_k.cache
+    )
 
 
 # def sanity_check_with_transformer_lens(nodes_to_mask, gpt2):
