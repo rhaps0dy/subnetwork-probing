@@ -1,3 +1,7 @@
+# import os
+
+# os.chdir("/home/ubuntu/mlab2_https/mlab2/")
+
 from copy import deepcopy
 from functools import partial
 from typing import Dict, List
@@ -13,7 +17,11 @@ from tqdm import tqdm
 from transformer_lens.HookedTransformer import HookedTransformer
 from transformer_lens.ioi_dataset import IOIDataset
 
-from induction_utils import get_induction_dataset, get_induction_model
+from induction_utils import (
+    get_induction_dataset,
+    get_induction_model,
+    compute_no_edges_in_transformer_lens,
+)
 
 SEQ_LEN = 300
 NUM_EXAMPLES = 40
@@ -271,11 +279,13 @@ def get_nodes_mask_dict(model: HookedTransformer):
 if __name__ == "__main__":
     model = get_induction_model()
     regularization_params = [
+        1e-3,
+        1e-2,
         1e-1,
         1e1,
         1e2,
         # 300,
-        500,
+        # 500,
         # 700,
         1e3,
     ]
@@ -284,6 +294,7 @@ if __name__ == "__main__":
     logit_diff_list = []
     number_of_nodes_list = []
     percentage_binary_list = []
+    number_of_edges = []
 
     for a_regulation_param in regularization_params:
         for task in ["IOI"]:
@@ -298,6 +309,7 @@ if __name__ == "__main__":
             number_of_nodes_list.append(number_of_nodes)
             mask_val_dict = get_nodes_mask_dict(model)
             percentage_binary = log_percentage_binary(mask_val_dict)
+            number_of_edges.append(compute_no_edges_in_transformer_lens(nodes_to_mask))
             wandb.log({"percentage_binary": percentage_binary})
             percentage_binary_list.append(percentage_binary)
             # sanity_check_with_transformer_lens(mask_val_dict)
@@ -317,14 +329,14 @@ if __name__ == "__main__":
 
     df = pd.DataFrame(
         {
-            "x": number_of_nodes_list,
+            "x": number_of_edges,
             "y": [i.detach().cpu().item() for i in logit_diff_list],
             "regularization_params": regularization_params,
-            # "percentage_binary": percentage_binary_list,
+            "percentage_binary": percentage_binary_list,
         }
     )
     plt = px.scatter(
-        df, x="x", y="y", hover_data=["regularization_params"]  # , "percentage_binary"]
+        df, x="x", y="y", hover_data=["regularization_params", "percentage_binary"]
     )
     plt.update_layout(xaxis_title="Number of Nodes", yaxis_title="Log Probs")
     wandb.log({"number_of_nodes": plt})
