@@ -29,26 +29,36 @@ def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
 
 
 def visualize_mask(model: HookedTransformer) -> None:
-    node_name = []
+    node_name_list = []
     mask_scores_for_names = []
     total_nodes = 0
     nodes_to_mask = []
     for layer_index, layer in enumerate(model.blocks):
-        for head in range(NUMBER_OF_HEADS):
+        for head_index in range(NUMBER_OF_HEADS):
             for q_k_v in ["q", "k", "v"]:
                 total_nodes += 1
                 if q_k_v == "q":
-
-                    if layer.attn.hook_q.sample_mask()[layer_index].cpu().item() < 0.5:
-                        nodes_to_mask.append(f"{layer_index}.{head}.{q_k_v}")
+                    mask_sample = (
+                        layer.attn.hook_q.sample_mask()[head_index].cpu().item()
+                    )
                 if q_k_v == "k":
-                    if layer.attn.hook_k.sample_mask()[layer_index].cpu().item() < 0.5:
-                        nodes_to_mask.append(f"{layer_index}.{head}.{q_k_v}")
+                    mask_sample = (
+                        layer.attn.hook_k.sample_mask()[head_index].cpu().item()
+                    )
                 if q_k_v == "v":
-                    if layer.attn.hook_v.sample_mask()[layer_index].cpu().item() < 0.5:
-                        nodes_to_mask.append(f"{layer_index}.{head}.{q_k_v}")
+                    mask_sample = (
+                        layer.attn.hook_v.sample_mask()[head_index].cpu().item()
+                    )
+                node_name = f"layer_{layer_index}_head_{head_index}_{q_k_v}"
+                node_name_list.append(node_name)
+                mask_scores_for_names.append(
+                    layer.attn.hook_v.mask_scores[head_index].cpu().item()
+                )
+                if mask_sample < 0.5:
+                    nodes_to_mask.append(node_name)
 
-    log_plotly_bar_chart(x=node_name, y=mask_scores_for_names)
+    assert len(mask_scores_for_names) == 3 * NUMBER_OF_HEADS * NUMBER_OF_LAYERS
+    log_plotly_bar_chart(x=node_name_list, y=mask_scores_for_names)
     node_count = total_nodes - len(nodes_to_mask)
     return node_count, nodes_to_mask
 
@@ -121,7 +131,7 @@ def do_random_resample_caching(
 
 
 def train_induction(
-    induction_model, mask_lr=0.01, epochs=10000, verbose=True, lambda_reg=100,
+    induction_model, mask_lr=0.01, epochs=1, verbose=True, lambda_reg=100,
 ):
     wandb.init(
         project="subnetwork-probing",
@@ -155,7 +165,7 @@ def train_induction(
             dataset, induction_model(train_data_tensor), mask_reshaped
         )
         regularizer_term = regularizer(induction_model)
-        loss = logit_diff_term  # + regularizer_term * lambda_reg
+        loss = logit_diff_term + regularizer_term * lambda_reg
         loss.backward()
 
         wandb.log(
@@ -260,7 +270,7 @@ if __name__ == "__main__":
         # 300,
         # 500,
         # 700,
-        # 1e3,
+        1e3,
     ]
 
     is_masked = True
@@ -281,18 +291,16 @@ if __name__ == "__main__":
             number_of_nodes_list.append(number_of_nodes)
             mask_val_dict = get_nodes_mask_dict(model)
             percentage_binary = log_percentage_binary(mask_val_dict)
-            # wandb.log({"percentage_binary": percentage_binary})
-            # percentage_binary_list.append(percentage_binary)
+            wandb.log({"percentage_binary": percentage_binary})
+            percentage_binary_list.append(percentage_binary)
             # sanity_check_with_transformer_lens(mask_val_dict)
             wandb.finish()
 
-    import ipdb
-
-    ipdb.set_trace()
     # make sure that regularizer can be optimized DONE
     # make sure logit diff can be optimized DONE
     # make sure that the mask is the right shape HOLD
-    # reimplement all the diagnostics that are commented out
+    # reimplement all the diagnostics that are commented out TODO
+    # reimplement sanity  check with transformer lens TODO
     # make sure that the input data makes sense
     # make sure that the model makes correct predictions
     # brainstorm more
@@ -303,7 +311,7 @@ if __name__ == "__main__":
     df = pd.DataFrame(
         {
             "x": number_of_nodes_list,
-            "y": [i for i in logit_diff_list],
+            "y": [i.detach().cpu().item() for i in logit_diff_list],
             "regularization_params": regularization_params,
             # "percentage_binary": percentage_binary_list,
         }
