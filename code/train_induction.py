@@ -131,14 +131,21 @@ def do_random_resample_caching(
 
 
 def train_induction(
-    induction_model, mask_lr=0.01, epochs=1, verbose=True, lambda_reg=100,
+    induction_model, mask_lr=0.01, epochs=3000, verbose=True, lambda_reg=100,
 ):
     wandb.init(
         project="subnetwork-probing",
         entity="acdcremix",
         config={"epochs": epochs, "mask_lr": mask_lr, "lambda_reg": lambda_reg},
     )
-    train_data_tensor, dataset, _, _, mask_reshaped = get_induction_dataset()
+    (
+        train_data_tensor,
+        patch_data_tensor,
+        dataset,
+        _,
+        _,
+        mask_reshaped,
+    ) = get_induction_dataset()
 
     # one parameter per thing that is masked
     mask_params = [
@@ -157,7 +164,7 @@ def train_induction(
     log = []
 
     for epoch in tqdm(range(epochs)):  # tqdm.notebook.tqdm(range(epochs)):
-        # induction_model = do_random_resample_caching(induction_model, train_data_tensor)
+        induction_model = do_random_resample_caching(induction_model, patch_data_tensor)
         induction_model.train()
         trainer.zero_grad()
         # compute loss, also log other metrics
@@ -265,10 +272,10 @@ if __name__ == "__main__":
     model = get_induction_model()
     regularization_params = [
         1e-1,
-        # 1e1,
-        # 1e2,
+        1e1,
+        1e2,
         # 300,
-        # 500,
+        500,
         # 700,
         1e3,
     ]

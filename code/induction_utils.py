@@ -6,11 +6,9 @@ import einops
 import rust_circuit as rc
 import torch
 from interp.circuit.causal_scrubbing.dataset import Dataset
-from interp.circuit.interop_rust.model_rewrites import (To,
-                                                        configure_transformer)
+from interp.circuit.interop_rust.model_rewrites import To, configure_transformer
 from interp.circuit.interop_rust.module_library import load_model_id
-from interp.circuit.projects.gpt2_gen_induction.rust_path_patching import \
-    make_arr
+from interp.circuit.projects.gpt2_gen_induction.rust_path_patching import make_arr
 from interp.tools.data_loading import get_val_seqs
 from interp.tools.indexer import TORCH_INDEXER as I
 from interp.tools.rrfs import RRFS_DIR
@@ -115,9 +113,10 @@ def get_induction_dataset():
     patch_output = default_output  # oo cares..
 
     default_ds = Dataset({"tokens": default_input, "labels": default_output})
-    # patched_ds = Dataset({"tokens": patch_input, "labels": patch_output})
+    patched_ds = Dataset({"tokens": patch_input, "labels": patch_output})
     return (
         default_ds.tokens.evaluate(),
+        patched_ds.tokens.evaluate(),
         default_ds,
         circ_dict,
         model_info,
@@ -273,8 +272,7 @@ def get_induction_model() -> HookedTransformer:
     """
 
     import transformer_lens
-    from transformer_lens.HookedTransformerConfig import \
-        HookedTransformerConfig
+    from transformer_lens.HookedTransformerConfig import HookedTransformerConfig
 
     cfg = HookedTransformerConfig(
         n_layers=2,
