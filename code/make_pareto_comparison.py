@@ -3,8 +3,8 @@
 """
 File for doing misc plotting
 """
-import wandb
 import numpy as np
+import wandb
 
 
 def get_col_from_df(df, col_name):
@@ -88,16 +88,16 @@ def get_longest_float(s):
     return ans
 
 
-import warnings
-import torch
 import os
-import pandas as pd
-import wandb
-import numpy as np
-import matplotlib.pyplot as plt
-import plotly.graph_objects as go
+import warnings
 
 import IPython
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import torch
+import wandb
 
 if IPython.get_ipython() is not None:
     IPython.get_ipython().run_line_magic("load_ext", "autoreload")
