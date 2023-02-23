@@ -17,7 +17,7 @@ from interp.tools.data_loading import get_val_seqs
 from interp.tools.indexer import TORCH_INDEXER as I
 from interp.tools.rrfs import RRFS_DIR
 from transformer_lens import HookedTransformer
-
+from typing import Dict
 
 def get_induction_dataset():
     try:
@@ -817,36 +817,33 @@ def compute_no_edges_in_transformer_lens(nodes_to_mask):
     """
     copied from ACDC code
     """
-    from typing import Dict
-    template_corr = get_ACDC_correspondece()
-    no_upstream_edges: Dict[str, int] = {}
-
-    for node in reversed(template_corr.corr):
-        name = node.name
-        no_upstream_edges[name] = 0
-        for child in node.children:
-            no_upstream_edges[name] += no_upstream_edges[child.name] + 1
-    cnt = 0
-    nodes = template_corr 
-    number_of_paths = {nodes.get_root().name: 1}
     nodes_to_mask = [i.replace("_", ".").replace("layer.", "").replace("head.", "") for i in nodes_to_mask]
-    for node in nodes.corr:
-        if convert_node_name(node.name) in nodes_to_mask: # added this to skip over nodes that are removed
-            continue
-        if node.is_redundant or (len(node.parents) == 0 and not node.is_root):
-            continue  # not in the current graph
-        if (
-            len(node.children) == 0
-        ):  # TODO get_no_edges works strangely with but_patched : (
-            cnt += number_of_paths[node.name] * no_upstream_edges[node.name]
-        for child in node.children:
-            cnt += number_of_paths[node.name]
-            if child.name not in number_of_paths:
-                number_of_paths[child.name] = 0
-            number_of_paths[child.name] += number_of_paths[node.name]
-    return cnt
+    nodes_to_mask = add_hierarchy_nodes(nodes_to_mask)
+    template_corr = get_ACDC_correspondece()
+    count = 0
+    for node in template_corr.corr:
+        parent_name = convert_node_name(node.name)
+        children = [i for i in node.children]
+        for child in children:
+            child_name = convert_node_name(child.name)
+            if parent_name not in nodes_to_mask and child_name not in nodes_to_mask:
+                count += 1
+
+    return count
+
+def add_hierarchy_nodes(nodes_to_mask):
+    """
+    copied from ACDC code
+    """
+    unique_hierarchy_nodes = set([i.replace(".q", "").replace(".k", "").replace(".v", "") for i in nodes_to_mask])
+    for hierarchy_node in unique_hierarchy_nodes:
+        if hierarchy_node + ".q" in nodes_to_mask and hierarchy_node + ".k" in nodes_to_mask and hierarchy_node + ".v" in nodes_to_mask:
+            nodes_to_mask.append(hierarchy_node)
+    return nodes_to_mask
 
 def convert_node_name(node_name: str) -> str:
     node_name = node_name.replace("a", "")
     node_name = node_name.replace("h", "")
     return node_name
+
+#%%

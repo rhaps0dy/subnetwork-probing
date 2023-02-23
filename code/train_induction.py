@@ -279,14 +279,14 @@ def get_nodes_mask_dict(model: HookedTransformer):
 if __name__ == "__main__":
     model = get_induction_model()
     regularization_params = [
-        1e-3,
+        # 1e-3,
         1e-2,
         1e-1,
         1e1,
         1e2,
-        # 300,
-        # 500,
-        # 700,
+        300,
+        500,
+        700,
         1e3,
     ]
 
