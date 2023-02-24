@@ -1,10 +1,8 @@
 # %%
-import os
-
-os.chdir("/home/ubuntu/mlab2_https/mlab2/")
 import pickle
 from typing import Tuple
 
+import os
 import einops
 import rust_circuit as rc
 import torch
@@ -19,10 +17,13 @@ from interp.tools.rrfs import RRFS_DIR
 from transformer_lens import HookedTransformer
 from typing import Dict
 
+
 def get_induction_dataset():
     try:
         with open(
-            os.path.expanduser("~/induction/data/masks/mask_repeat_candidates.pkl"),
+            os.path.expanduser(
+                "/home/ubuntu/induction/data/masks/mask_repeat_candidates.pkl"
+            ),
             "rb",
         ) as f:
             mask_repeat_candidates = pickle.load(f)
@@ -318,7 +319,6 @@ def get_induction_model() -> HookedTransformer:
         # use_hook_tokens: bool = False
     )
 
-
     et_model = transformer_lens.HookedTransformer(cfg, is_masked=True)
 
     # embed.W_E torch.Size([50259, 256]) True
@@ -423,7 +423,6 @@ def get_ACDC_correspondece():
     Edited version of the hierarchy tutorial that runs a number of threshold runs, and then uses the results to plot a pareto frontier.
     """
 
-
     import os
     import time
     import sys
@@ -478,6 +477,7 @@ def get_ACDC_correspondece():
     from interp.circuit.interop_rust.model_rewrites import To, configure_transformer
     from interp.circuit.interop_rust.module_library import load_model_id
     import sys
+
     sys.path.insert(1, "/home/ubuntu/mlab2_https/mlab2/")
     from remix_d5_acdc_utils import (
         ACDCCorrespondence,
@@ -501,13 +501,18 @@ def get_ACDC_correspondece():
     MAIN = __name__ == "__main__"
 
     try:
-        with open(os.path.expanduser("~/induction/data/masks/mask_repeat_candidates.pkl"), "rb") as f:
-            mask_repeat_candidates=pickle.load(f)
+        with open(
+            os.path.expanduser("~/induction/data/masks/mask_repeat_candidates.pkl"),
+            "rb",
+        ) as f:
+            mask_repeat_candidates = pickle.load(f)
             # t[1] has 132, 136, 176 available...
             # if induction is AB...AB, B tokens are on 133(OK...), 137, 177
             # OK so this is where we punish losses
     except:
-        raise Exception("Have you cloned https://github.com/aryamanarora/induction ??? It is where all the masks are kept !!!")
+        raise Exception(
+            "Have you cloned https://github.com/aryamanarora/induction ??? It is where all the masks are kept !!!"
+        )
 
     DEVICE = "cuda:0"
     SEQ_LEN = 300
@@ -525,7 +530,6 @@ def get_ACDC_correspondece():
     START_TIME = datetime.datetime.now().strftime("%a-%d%b_%H%M%S")
     PROJECT_NAME = f"induction_arthur"
 
-
     (circ_dict, tokenizer, model_info) = load_model_id(MODEL_ID)
 
     """
@@ -535,23 +539,31 @@ def get_ACDC_correspondece():
     # longer seq len is better, but short makes stuff a bit easier...
     n_files = 1
     reload_dataset = False
-    toks_int_values: rc.Array 
+    toks_int_values: rc.Array
 
     if reload_dataset:
-        dataset_toks = torch.tensor(get_val_seqs(n_files=n_files, files_start=0, max_size=SEQ_LEN + 1)).cuda()
+        dataset_toks = torch.tensor(
+            get_val_seqs(n_files=n_files, files_start=0, max_size=SEQ_LEN + 1)
+        ).cuda()
         NUM_EXAMPLES, _ = dataset_toks.shape
         toks_int_values = rc.Array(dataset_toks.float(), name="toks_int_vals")
         print(f'new dataset "{toks_int_values.repr()}"')
     else:
         P = rc.Parser()
-        toks_int_values_raw = P(f"'toks_int_vals' [104091,301] Array 3f36c4ca661798003df14994").cast_array()
+        toks_int_values_raw = P(
+            f"'toks_int_vals' [104091,301] Array 3f36c4ca661798003df14994"
+        ).cast_array()
 
     CACHE_DIR = f"{RRFS_DIR}/ryan/induction_scrub/cached_vals"
-    good_induction_candidate = torch.load(f"{CACHE_DIR}/induction_candidates_2022-10-15 04:48:29.970735.pt").to(
-        device=DEVICE, dtype=torch.float32
-    )
-    assert toks_int_values_raw.shape[0] >= SEQ_LEN, f"toks_int_values_raw.shape[0] = {toks_int_values_raw.shape[0]} < {SEQ_LEN} - you could try increasing `n_files`"
-    assert toks_int_values_raw.shape[1] >= SEQ_LEN + 1, f"toks_int_values_raw.shape[1] = {toks_int_values_raw.shape[1]} < {SEQ_LEN + 1}"
+    good_induction_candidate = torch.load(
+        f"{CACHE_DIR}/induction_candidates_2022-10-15 04:48:29.970735.pt"
+    ).to(device=DEVICE, dtype=torch.float32)
+    assert (
+        toks_int_values_raw.shape[0] >= SEQ_LEN
+    ), f"toks_int_values_raw.shape[0] = {toks_int_values_raw.shape[0]} < {SEQ_LEN} - you could try increasing `n_files`"
+    assert (
+        toks_int_values_raw.shape[1] >= SEQ_LEN + 1
+    ), f"toks_int_values_raw.shape[1] = {toks_int_values_raw.shape[1]} < {SEQ_LEN + 1}"
 
     tokens_device_dtype = rc.TorchDeviceDtype(device="cuda", dtype="int64")
 
@@ -560,30 +572,38 @@ def get_ACDC_correspondece():
         name="toks_int_vals",
         device_dtype=tokens_device_dtype,
     )
-    mask_reshaped = mask_repeat_candidates[:NUM_EXAMPLES, :SEQ_LEN] # only used for loss
+    mask_reshaped = mask_repeat_candidates[
+        :NUM_EXAMPLES, :SEQ_LEN
+    ]  # only used for loss
     denom = mask_reshaped.int().sum().item()
     print("We're going to study", denom, "examples...")
     assert denom == 172, (denom, "was not expected")
 
     toks_int_labels = make_arr(
-        toks_int_values_raw.value[:NUM_EXAMPLES, 1:SEQ_LEN+1],
+        toks_int_values_raw.value[:NUM_EXAMPLES, 1 : SEQ_LEN + 1],
         name="toks_int_labels",
         device_dtype=tokens_device_dtype,
     )
+
     def shuffle_tensor(tens):
         """Shuffle tensor along first dimension"""
         return tens[torch.randperm(tens.shape[0])]
 
     toks_int_values_other = make_arr(
-        shuffle_tensor(toks_int_values.value[:NUM_EXAMPLES, :SEQ_LEN + 1]),
+        shuffle_tensor(toks_int_values.value[:NUM_EXAMPLES, : SEQ_LEN + 1]),
         name="toks_int_vals_other",
         device_dtype=tokens_device_dtype,
     )
 
-    toks = tokenizer.batch_decode(good_induction_candidate.nonzero().flatten().view(-1, 1))
+    toks = tokenizer.batch_decode(
+        good_induction_candidate.nonzero().flatten().view(-1, 1)
+    )
     maxlen_tok = max((len(tok), tok) for tok in toks)
 
-    circ_dict = {s: rc.cast_circuit(c, rc.TorchDeviceDtypeOp(device="cuda")) for s, c in circ_dict.items()}
+    circ_dict = {
+        s: rc.cast_circuit(c, rc.TorchDeviceDtypeOp(device="cuda"))
+        for s, c in circ_dict.items()
+    }
 
     orig_circuit = circ_dict["t.bind_w"]
     tok_embeds = circ_dict["t.w.tok_embeds"]
@@ -602,32 +622,28 @@ def get_ACDC_correspondece():
     #     "tokens",
     #     device_dtype=tokens_device_dtype,
     # )
-    patch_output = default_output # oo cares..
+    patch_output = default_output  # oo cares..
 
     default_ds = Dataset({"tokens": default_input, "labels": default_output})
     patch_ds = Dataset({"tokens": patch_input, "labels": patch_output})
-
 
     # from transformer_lens import HookedTransformer
     # et_model = HookedTransformer.from_pretrained("gpt2-medium")
 
     from transformers import GPT2Tokenizer
-    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-    tokenizer("Hello world")['input_ids']
-    [15496, 995]
 
+    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+    tokenizer("Hello world")["input_ids"]
+    [15496, 995]
 
     """
     Create metric
 
-    As mentioned in the AF post, the UNSCRUBBED output = 0.179, 
+    As mentioned in the AF post, the UNSCRUBBED output = 0.179,
     Induction heads scrubbed = 0.24
     """
 
-    def negative_log_probs(
-        dataset: Dataset,
-        logits: torch.Tensor,
-    ) -> float:
+    def negative_log_probs(dataset: Dataset, logits: torch.Tensor,) -> float:
         """NOTE: this average over all sequence positions, I'm unsure why..."""
         labels = dataset.arrs["labels"].evaluate()
         probs = F.softmax(logits, dim=-1)
@@ -635,26 +651,36 @@ def get_ACDC_correspondece():
         assert probs.min() >= 0.0
         assert probs.max() <= 1.0
 
-        log_probs = probs[torch.arange(NUM_EXAMPLES).unsqueeze(-1), torch.arange(SEQ_LEN).unsqueeze(0), labels].log()
-        
-        assert mask_reshaped.shape == log_probs.shape, (mask_reshaped.shape, log_probs.shape)
+        log_probs = probs[
+            torch.arange(NUM_EXAMPLES).unsqueeze(-1),
+            torch.arange(SEQ_LEN).unsqueeze(0),
+            labels,
+        ].log()
+
+        assert mask_reshaped.shape == log_probs.shape, (
+            mask_reshaped.shape,
+            log_probs.shape,
+        )
 
         masked_log_probs = log_probs * mask_reshaped.int()
         result = (-1.0 * float(masked_log_probs.sum())) / denom
 
-        print('Result', result, denom)
+        print("Result", result, denom)
         return result
-
 
     """
     Create model
     """
 
-    assert model_info.causal_mask, "Should not apply causal mask if the transformer doesn't expect it!"
+    assert (
+        model_info.causal_mask
+    ), "Should not apply causal mask if the transformer doesn't expect it!"
 
     # TODO: may be an issue later!
     causal_mask = rc.Array(
-        (torch.arange(SEQ_LEN)[:, None] >= torch.arange(SEQ_LEN)[None, :]).to(tok_embeds.cast_array().value),
+        (torch.arange(SEQ_LEN)[:, None] >= torch.arange(SEQ_LEN)[None, :]).to(
+            tok_embeds.cast_array().value
+        ),
         f"t.a.c.causal_mask",
     )
     assert model_info.pos_enc_type == "shortformer"
@@ -664,7 +690,9 @@ def get_ACDC_correspondece():
         rc.Array(torch.zeros(SEQ_LEN).to(torch.long), name="tokens"),
         device_dtype=tokens_device_dtype.op(),
     )
-    idxed_embeds = rc.GeneralFunction.gen_index(tok_embeds, tokens_arr, index_dim=0, name="idxed_embeds")
+    idxed_embeds = rc.GeneralFunction.gen_index(
+        tok_embeds, tokens_arr, index_dim=0, name="idxed_embeds"
+    )
 
     # CHECK
     model = rc.module_new_bind(
@@ -700,7 +728,9 @@ def get_ACDC_correspondece():
     model = rc.conform_all_modules(model)
     model = model.update("t.call", lambda c: c.rename("logits"))
     model = model.update("t.call", lambda c: c.rename("logits_with_bias"))
-    model = model.update(rc.Regex("[am]\\d(.h\\d)?$"), lambda c: c.rename(c.name + ".inner"))
+    model = model.update(
+        rc.Regex("[am]\\d(.h\\d)?$"), lambda c: c.rename(c.name + ".inner")
+    )
     model = model.update("t.inp_tok_pos", lambda c: c.rename("embeds"))
     model = model.update("t.a.mask", lambda c: c.rename("padding_mask"))
     for l in range(model_info.params.num_layers):
@@ -709,19 +739,21 @@ def get_ACDC_correspondece():
         next = "final" if l == model_info.params.num_layers - 1 else f"a{l + 1}"
         model = model.update(f"b{l}", lambda c: c.rename(f"{next}.input"))
 
-
-    def create_path_matcher(start_node: rc.MatcherIn, path: list[str], max_distance=10) -> rc.IterativeMatcher:
+    def create_path_matcher(
+        start_node: rc.MatcherIn, path: list[str], max_distance=10
+    ) -> rc.IterativeMatcher:
         """
         Creates a matcher that matches a path of nodes, given in a list of names, where the maximum distance between each node on the path is max_distance
         """
 
         initial_matcher = rc.IterativeMatcher(start_node)
-        max_dis_path_matcher = lambda name: rc.restrict(rc.Matcher(name), end_depth=max_distance)
+        max_dis_path_matcher = lambda name: rc.restrict(
+            rc.Matcher(name), end_depth=max_distance
+        )
         chain_matcher = initial_matcher.chain(max_dis_path_matcher(path[0]))
         for i in range(1, len(path)):
             chain_matcher = chain_matcher.chain(max_dis_path_matcher(path[i]))
         return chain_matcher
-
 
     q_path = [
         "a.comb_v",
@@ -750,13 +782,16 @@ def get_ACDC_correspondece():
         for h in range(no_heads):
             for qkv in ["q", "k", "v"]:
                 qkv_matcher = create_path_matcher(f"a{l}.h{h}", qkv_paths[qkv])
-                new_circuit = new_circuit.update(qkv_matcher, lambda c: c.rename(f"a{l}.h{h}.{qkv}"))
-
+                new_circuit = new_circuit.update(
+                    qkv_matcher, lambda c: c.rename(f"a{l}.h{h}.{qkv}")
+                )
 
     printer = rc.PrintHtmlOptions(
         shape_only_when_necessary=False,
         traversal=rc.restrict(
-            rc.IterativeMatcher("embeds", "padding_mask", "final.norm", rc.Regex("^[am]\\d(.h\\d)?$")),
+            rc.IterativeMatcher(
+                "embeds", "padding_mask", "final.norm", rc.Regex("^[am]\\d(.h\\d)?$")
+            ),
             term_if_matches=True,
         ),
     )
@@ -768,10 +803,13 @@ def get_ACDC_correspondece():
     Create correspondence
     """
 
-
     all_names = (
         [embed_name, root_name]
-        + [attention_head_name.format(layer=l, head=h) for l in range(no_layers) for h in range(no_heads)]
+        + [
+            attention_head_name.format(layer=l, head=h)
+            for l in range(no_layers)
+            for h in range(no_heads)
+        ]
         + [
             qkv_node_name.format(layer=l, head=h, qkv=qkv)
             for l in range(no_layers)
@@ -789,7 +827,9 @@ def get_ACDC_correspondece():
     for layer in tqdm(range(no_layers - 1, -1, -1)):
         qkv_nodes_list = []
         for head in range(no_heads):
-            head_node = ACDCInterpNode(attention_head_name.format(layer=layer, head=head))
+            head_node = ACDCInterpNode(
+                attention_head_name.format(layer=layer, head=head)
+            )
             for node in all_residual_stream_parents:
                 node.add_child(head_node)
                 head_node.add_parent(node)
@@ -813,11 +853,15 @@ def get_ACDC_correspondece():
     template_corr.topologically_sort_corr()
     return template_corr
 
+
 def compute_no_edges_in_transformer_lens(nodes_to_mask):
     """
     copied from ACDC code
     """
-    nodes_to_mask = [i.replace("_", ".").replace("layer.", "").replace("head.", "") for i in nodes_to_mask]
+    nodes_to_mask = [
+        i.replace("_", ".").replace("layer.", "").replace("head.", "")
+        for i in nodes_to_mask
+    ]
     nodes_to_mask = add_hierarchy_nodes(nodes_to_mask)
     template_corr = get_ACDC_correspondece()
     count = 0
@@ -831,19 +875,28 @@ def compute_no_edges_in_transformer_lens(nodes_to_mask):
 
     return count
 
+
 def add_hierarchy_nodes(nodes_to_mask):
     """
     copied from ACDC code
     """
-    unique_hierarchy_nodes = set([i.replace(".q", "").replace(".k", "").replace(".v", "") for i in nodes_to_mask])
+    unique_hierarchy_nodes = set(
+        [i.replace(".q", "").replace(".k", "").replace(".v", "") for i in nodes_to_mask]
+    )
     for hierarchy_node in unique_hierarchy_nodes:
-        if hierarchy_node + ".q" in nodes_to_mask and hierarchy_node + ".k" in nodes_to_mask and hierarchy_node + ".v" in nodes_to_mask:
+        if (
+            hierarchy_node + ".q" in nodes_to_mask
+            and hierarchy_node + ".k" in nodes_to_mask
+            and hierarchy_node + ".v" in nodes_to_mask
+        ):
             nodes_to_mask.append(hierarchy_node)
     return nodes_to_mask
+
 
 def convert_node_name(node_name: str) -> str:
     node_name = node_name.replace("a", "")
     node_name = node_name.replace("h", "")
     return node_name
+
 
 #%%
