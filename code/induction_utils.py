@@ -22,7 +22,7 @@ def get_induction_dataset():
     try:
         with open(
             os.path.expanduser(
-                "/home/ubuntu/induction/data/masks/mask_repeat_candidates.pkl"
+                "~/induction/data/masks/mask_repeat_candidates.pkl"
             ),
             "rb",
         ) as f:
