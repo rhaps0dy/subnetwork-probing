@@ -34,6 +34,7 @@ def get_induction_dataset():
         raise Exception(
             "Have you cloned https://github.com/aryamanarora/induction ??? It is where all the masks are kept !!!"
         )
+
     DEVICE = "cuda:0"
     SEQ_LEN = 300
     NUM_EXAMPLES = 40

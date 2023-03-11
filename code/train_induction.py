@@ -22,11 +22,15 @@ from induction_utils import (
     get_induction_model,
     compute_no_edges_in_transformer_lens,
 )
+from base_probs import compute_base_model_probs
 
 SEQ_LEN = 300
 NUM_EXAMPLES = 40
 NUMBER_OF_HEADS = 8
 NUMBER_OF_LAYERS = 2
+BASE_MODEL_PROBS = compute_base_model_probs()
+# don't want to backprop through this
+BASE_MODEL_PROBS = BASE_MODEL_PROBS.detach()
 
 
 def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
@@ -120,6 +124,21 @@ def negative_log_probs(
     return result
 
 
+def kl_divergence(dataset: Dataset, logits: torch.Tensor, mask_reshaped: torch.Tensor):
+    """Compute KL divergence between base_model_probs and probs, taken from Arthur's ACDC code"""
+    # labels = dataset.arrs["labels"].evaluate()
+    probs = F.softmax(logits, dim=-1)
+
+    assert probs.min() >= 0.0
+    assert probs.max() <= 1.0
+
+    denom = mask_reshaped.int().sum().item()
+    kl_div = (BASE_MODEL_PROBS * (BASE_MODEL_PROBS.log() - probs.log())).sum(dim=-1)
+    kl_div = kl_div * mask_reshaped.int()
+
+    return kl_div.sum() / denom
+
+
 def do_random_resample_caching(
     model: HookedTransformer, train_data: torch.Tensor
 ) -> HookedTransformer:
@@ -139,8 +158,9 @@ def do_random_resample_caching(
 
 
 def train_induction(
-    induction_model, mask_lr=0.01, epochs=3000, verbose=True, lambda_reg=100,
+    induction_model, mask_lr=0.01, epochs=30, verbose=True, lambda_reg=100,
 ):
+
     wandb.init(
         project="subnetwork-probing",
         entity="acdcremix",
@@ -176,7 +196,10 @@ def train_induction(
         induction_model.train()
         trainer.zero_grad()
         # compute loss, also log other metrics
-        logit_diff_term = negative_log_probs(
+        # logit_diff_term = negative_log_probs(
+        #     dataset, induction_model(train_data_tensor), mask_reshaped
+        # )
+        logit_diff_term = kl_divergence(
             dataset, induction_model(train_data_tensor), mask_reshaped
         )
         regularizer_term = regularizer(induction_model)
@@ -186,7 +209,7 @@ def train_induction(
         wandb.log(
             {
                 "regularisation_loss": regularizer_term,
-                "negative_log_probs_loss": logit_diff_term,
+                "KL_loss": logit_diff_term,
                 "total_loss": loss,
             }
         )
@@ -279,27 +302,39 @@ def get_nodes_mask_dict(model: HookedTransformer):
 if __name__ == "__main__":
     model = get_induction_model()
     regularization_params = [
-        1e-2,
-        1e-1,
-        1e1,
-        20,
-        40,
-        50,
-        55,
-        60,
-        65,
-        70,
-        80,
-        100,
-        200,
-        300,
-        400,
-        500,
-        600,
+        # 1e-2,
+        # 1e-1,
+        # 1e1,
+        # 20,
+        # 40,
+        # 50,
+        # 55,
+        # 60,
+        # 65,
+        # 70,
+        # 80,
+        # 100,
+        # 120,
+        # 140,
+        # 160,
+        # 180,
+        # 200,
+        # 250,
+        # 300,
+        # 310,
+        # 320,
+        # 330,
+        # 350,
+        # 360,
+        # 370,
+        # 380,
+        # 400,
+        # 500,
+        # 600,
         700,
-        800,
-        900,
-        1e3,
+        # 800,
+        # 900,
+        # 1e3,
     ]
 
     is_masked = True
@@ -341,7 +376,7 @@ if __name__ == "__main__":
 
     df = pd.DataFrame(
         {
-            "x": number_of_edges,
+            "x": np.log(number_of_edges),
             "y": [i.detach().cpu().item() for i in logit_diff_list],
             "regularization_params": regularization_params,
             "percentage_binary": percentage_binary_list,
@@ -350,6 +385,6 @@ if __name__ == "__main__":
     plt = px.scatter(
         df, x="x", y="y", hover_data=["regularization_params", "percentage_binary"]
     )
-    plt.update_layout(xaxis_title="Number of Nodes", yaxis_title="Log Probs")
+    plt.update_layout(xaxis_title="Number of Nodes", yaxis_title="KL")
     wandb.log({"number_of_nodes": plt})
     wandb.finish()

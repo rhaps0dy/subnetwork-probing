@@ -161,6 +161,7 @@ def test_do_random_resample_caching(gpt2, masked_gpt2, ioi_data):
         transformer_lens_cache, masked_gpt2.blocks[10].attn.hook_k.cache
     )
 
+def test_
 
 # def sanity_check_with_transformer_lens(nodes_to_mask, gpt2):
 #     from train import logit_diff_from_ioi_dataset, make_forward_hooks, train_ioi
