@@ -398,7 +398,7 @@ if __name__ == "__main__":
     # make sure that the model makes correct predictions
     # brainstorm more
     #
-    wandb.init(project="pareto-subnetwork-probing", entity="remix_school-of-rock")
+    wandb.init(project="pareto-subnetwork-probing", entity=args.wandb_entity)
     import plotly.express as px
 
     df = pd.DataFrame(
