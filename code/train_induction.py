@@ -155,9 +155,11 @@ def do_random_resample_caching(
     return model
 
 
-def train_induction(
-    args, induction_model, mask_lr=0.001, epochs=3000, verbose=True, lambda_reg=100,
-):
+def train_induction(args, induction_model):
+    epochs = args.epochs
+    mask_lr = args.lr
+    lambda_reg = args.lambda_reg
+    verbose = args.verbose
 
     wandb.init(
         project="subnetwork-probing",
@@ -310,8 +312,11 @@ def get_nodes_mask_dict(model: HookedTransformer):
 
 parser = argparse.ArgumentParser("train_induction")
 parser.add_argument("--wandb-entity", type=str, required=True)
-parser.add_argument("--regularization-param", type=float, default=1.0)
 parser.add_argument("--device", type=str, default="cuda")
+parser.add_argument("--mask-lr", type=float, default=0.001)
+parser.add_argument("--epochs", type=int, default=3000)
+parser.add_argument("--verbose", type=bool, default=True)
+parser.add_argument("--lambda-reg", type=float, default=100)
 
 
 if __name__ == "__main__":
@@ -360,7 +365,7 @@ if __name__ == "__main__":
     model.load_state_dict(state_dict)
     model = model.to(args.device)
 
-    regularization_params = [args.regularization_param]
+    regularization_params = [args.lambda_reg]
 
     is_masked = True
     logit_diff_list = []
@@ -368,26 +373,21 @@ if __name__ == "__main__":
     percentage_binary_list = []
     number_of_edges = []
 
-    for a_regulation_param in regularization_params:
-        for task in ["IOI"]:
-            model.freeze_weights()
-            print("Finding subnetwork...")
-            assert task == "IOI"
-            log, model, number_of_nodes, logit_diff, nodes_to_mask = train_induction(
-                args=args, induction_model=deepcopy(model), lambda_reg=a_regulation_param
-            )
-            for _ in range(100):
-                print("nodes to mask", nodes_to_mask)
-                print("number of nodes", number_of_nodes)
-            logit_diff_list.append(logit_diff)
-            number_of_nodes_list.append(number_of_nodes)
-            mask_val_dict = get_nodes_mask_dict(model)
-            percentage_binary = log_percentage_binary(mask_val_dict)
-            number_of_edges.append(compute_no_edges_in_transformer_lens(nodes_to_mask))
-            wandb.log({"percentage_binary": percentage_binary})
-            percentage_binary_list.append(percentage_binary)
-            # sanity_check_with_transformer_lens(mask_val_dict)
-            wandb.finish()
+    model.freeze_weights()
+    print("Finding subnetwork...")
+    log, model, number_of_nodes, logit_diff, nodes_to_mask = train_induction(args=args, induction_model=model)
+    for _ in range(100):
+        print("nodes to mask", nodes_to_mask)
+        print("number of nodes", number_of_nodes)
+    logit_diff_list.append(logit_diff)
+    number_of_nodes_list.append(number_of_nodes)
+    mask_val_dict = get_nodes_mask_dict(model)
+    percentage_binary = log_percentage_binary(mask_val_dict)
+    number_of_edges.append(compute_no_edges_in_transformer_lens(nodes_to_mask))
+    wandb.log({"percentage_binary": percentage_binary})
+    percentage_binary_list.append(percentage_binary)
+    # sanity_check_with_transformer_lens(mask_val_dict)
+    wandb.finish()
 
     # make sure that regularizer can be optimized DONE
     # make sure logit diff can be optimized DONE

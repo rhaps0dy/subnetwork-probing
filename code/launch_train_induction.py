@@ -36,12 +36,12 @@ regularization_params = [
     1e3,
 ]
 
-for param in regularization_params:
+for lambda_reg in regularization_params:
     print("Launching training for regularization parameter {}".format(param))
     subprocess.call(
         [
             "python3",
             "train_induction.py",
-            f"--regularization-param={param}",
+            f"--lambda-reg={lambda_reg}",
         ]
     )
