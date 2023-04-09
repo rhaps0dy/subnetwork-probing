@@ -2,9 +2,11 @@
 
 # os.chdir("/home/ubuntu/mlab2_https/mlab2/")
 
+import argparse
 from copy import deepcopy
 from functools import partial
 from typing import Dict, List
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -12,25 +14,22 @@ import torch
 import torch.nn.functional as F
 import transformer_lens.utils as utils
 import wandb
-from interp.circuit.causal_scrubbing.dataset import Dataset
 from tqdm import tqdm
 from transformer_lens.HookedTransformer import HookedTransformer
+from transformer_lens.HookedTransformerConfig import HookedTransformerConfig
 from transformer_lens.ioi_dataset import IOIDataset
 
-from induction_utils import (
-    get_induction_dataset,
-    get_induction_model,
-    compute_no_edges_in_transformer_lens,
-)
-from base_probs import compute_base_model_probs
+
+def compute_no_edges_in_transformer_lens(nodes_to_mask):
+    print(nodes_to_mask)
+    return 1
+
 
 SEQ_LEN = 300
 NUM_EXAMPLES = 40
 NUMBER_OF_HEADS = 8
 NUMBER_OF_LAYERS = 2
-BASE_MODEL_PROBS = compute_base_model_probs()
-# don't want to backprop through this
-BASE_MODEL_PROBS = BASE_MODEL_PROBS.detach()
+BASE_MODEL_PROBS = torch.zeros([0])  # zero-size tensor so we error
 
 
 def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
@@ -96,10 +95,9 @@ def regularizer(
 
 
 def negative_log_probs(
-    dataset: Dataset, logits: torch.Tensor, mask_reshaped: torch.Tensor
+    labels: torch.Tensor, logits: torch.Tensor, mask_reshaped: torch.Tensor
 ) -> float:
     """NOTE: this average over all sequence positions, I'm unsure why..."""
-    labels = dataset.arrs["labels"].evaluate()
     probs = F.softmax(logits, dim=-1)
 
     assert probs.min() >= 0.0
@@ -124,7 +122,7 @@ def negative_log_probs(
     return result
 
 
-def kl_divergence(dataset: Dataset, logits: torch.Tensor, mask_reshaped: torch.Tensor):
+def kl_divergence(logits: torch.Tensor, mask_reshaped: torch.Tensor):
     """Compute KL divergence between base_model_probs and probs, taken from Arthur's ACDC code"""
     # labels = dataset.arrs["labels"].evaluate()
     probs = F.softmax(logits, dim=-1)
@@ -158,22 +156,33 @@ def do_random_resample_caching(
 
 
 def train_induction(
-    induction_model, mask_lr=0.001, epochs=3000, verbose=True, lambda_reg=100,
+    args, induction_model, mask_lr=0.001, epochs=3000, verbose=True, lambda_reg=100,
 ):
 
     wandb.init(
         project="subnetwork-probing",
-        entity="remix_school-of-rock",
+        entity=args.wandb_entity,
         config={"epochs": epochs, "mask_lr": mask_lr, "lambda_reg": lambda_reg},
     )
-    (
-        train_data_tensor,
-        patch_data_tensor,
-        dataset,
-        _,
-        _,
-        mask_reshaped,
-    ) = get_induction_dataset()
+    base_dir = Path(__file__).parent.parent / "data" / "induction"
+    train_data_tensor = torch.load(base_dir / "train.pt").to(args.device)
+    patch_data_tensor = torch.load(base_dir / "patch.pt").to(args.device)
+    mask_reshaped = torch.load(base_dir / "mask_reshaped.pt").to(args.device)
+
+
+    global BASE_MODEL_PROBS
+    with torch.no_grad():
+        for layer in induction_model.blocks:
+            layer.attn.hook_q.mask_scores[:] = torch.inf
+            layer.attn.hook_k.mask_scores[:] = torch.inf
+            layer.attn.hook_v.mask_scores[:] = torch.inf
+
+        BASE_MODEL_PROBS = induction_model(train_data_tensor).detach()
+
+        for layer in induction_model.blocks:
+            layer.attn.hook_q.mask_scores[:] = 1.6094
+            layer.attn.hook_k.mask_scores[:] = 1.6094
+            layer.attn.hook_v.mask_scores[:] = 1.6094
 
     # one parameter per thing that is masked
     mask_params = [
@@ -200,7 +209,7 @@ def train_induction(
         #     dataset, induction_model(train_data_tensor), mask_reshaped
         # )
         logit_diff_term = kl_divergence(
-            dataset, induction_model(train_data_tensor), mask_reshaped
+            induction_model(train_data_tensor), mask_reshaped
         )
         regularizer_term = regularizer(induction_model)
         loss = logit_diff_term + regularizer_term * lambda_reg
@@ -299,43 +308,59 @@ def get_nodes_mask_dict(model: HookedTransformer):
     return mask_value_dict
 
 
+parser = argparse.ArgumentParser("train_induction")
+parser.add_argument("--wandb-entity", type=str, required=True)
+parser.add_argument("--regularization-param", type=float, default=1.0)
+parser.add_argument("--device", type=str, default="cuda")
+
+
 if __name__ == "__main__":
-    model = get_induction_model()
-    regularization_params = [
-        1e-2,
-        1e-1,
-        1e1,
-        20,
-        40,
-        50,
-        55,
-        60,
-        65,
-        70,
-        80,
-        100,
-        120,
-        140,
-        160,
-        180,
-        200,
-        250,
-        300,
-        310,
-        320,
-        330,
-        350,
-        360,
-        370,
-        380,
-        400,
-        500,
-        600,
-        700,
-        800,
-        900,
-        1e3,
-    ]
+    args = parser.parse_args()
+    cfg = HookedTransformerConfig(
+        n_layers=2,
+        d_model=256,
+        n_ctx=2048,  # chekc pos embed size
+        n_heads=8,
+        d_head=32,
+        # model_name : str = "custom"
+        # d_mlp: Optional[int] = None
+        # act_fn: Optional[str] = None
+        d_vocab=50259,
+        # eps: float = 1e-5
+        use_attn_result=True,
+        use_attn_scale=True,  # divide by sqrt(d_head)
+        # use_local_attn: bool = False
+        # original_architecture: Optional[str] = None
+        # from_checkpoint: bool = False
+        # checkpoint_index: Optional[int] = None
+        # checkpoint_label_type: Optional[str] = None
+        # checkpoint_value: Optional[int] = None
+        # tokenizer_name: Optional[str] = None
+        # window_size: Optional[int] = None
+        # attn_types: Optional[List] = None
+        # init_mode: str = "gpt2"
+        # normalization_type: Optional[str] = "LN"
+        # device: Optional[str] = None
+        # attention_dir: str = "causal"
+        attn_only=True,
+        # seed: Optional[int] = None
+        # initializer_range: float = -1.0
+        # init_weights: bool = True
+        # scale_attn_by_inverse_layer_idx: bool = False
+        positional_embedding_type="shortformer",
+        # final_rms: bool = False
+        # d_vocab_out: int = -1
+        # parallel_attn_mlp: bool = False
+        # rotary_dim: Optional[int] = None
+        # n_params: Optional[int] = None
+        # use_hook_tokens: bool = False
+    )
+    model = HookedTransformer(cfg, is_masked=True)
+    state_dict = torch.load(Path(__file__).parent.parent / "data" / "induction" / "model.pt")
+    model.load_state_dict(state_dict)
+    model = model.to(args.device)
+
+    regularization_params = [args.regularization_param]
 
     is_masked = True
     logit_diff_list = []
@@ -349,7 +374,7 @@ if __name__ == "__main__":
             print("Finding subnetwork...")
             assert task == "IOI"
             log, model, number_of_nodes, logit_diff, nodes_to_mask = train_induction(
-                deepcopy(model), lambda_reg=a_regulation_param
+                args=args, induction_model=deepcopy(model), lambda_reg=a_regulation_param
             )
             for _ in range(100):
                 print("nodes to mask", nodes_to_mask)
