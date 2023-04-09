@@ -5,7 +5,7 @@
 import argparse
 from copy import deepcopy
 from functools import partial
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from pathlib import Path
 
 import numpy as np
@@ -19,18 +19,40 @@ from transformer_lens.HookedTransformer import HookedTransformer
 from transformer_lens.HookedTransformerConfig import HookedTransformerConfig
 from transformer_lens.ioi_dataset import IOIDataset
 
+from acdc.TLACDCInterpNode import TLACDCInterpNode
+from acdc.TLACDCCorrespondence import TLACDCCorrespondence
+from acdc.acdc_utils import EdgeType, TorchIndex
 
-def compute_no_edges_in_transformer_lens(nodes_to_mask):
-    # Example nodes to mask name: "layer_0_head_3_q"
-    print(nodes_to_mask)
-    return 1
+import networkx as nx
+
+def corr_graph_from_mask(model: HookedTransformer, nodes_to_mask: list[TLACDCInterpNode]) -> nx.DiGraph:
+    corr = TLACDCCorrespondence.setup_from_model(model)
+
+    # Build DiGraph from correspondence
+    graph = nx.DiGraph()
+    for node in corr.nodes():
+        graph.add_node((node.name, node.index))
+    for cn, ci, pn, pi in corr.all_edges().keys():
+        graph.add_edge((pn, pi), (cn, ci))
+
+    # Remove masked nodes
+    for node in nodes_to_mask:
+        graph.remove_node((node.name, node.index))
+
+    # Remove nodes which don't communicate with the output
+    logits_node = (f"blocks.{model.cfg.n_layers-1}.hook_resid_post", TorchIndex([None]))
+    assert logits_node in graph.nodes
+    for node in list(graph.nodes):
+        if not nx.has_path(graph, node, logits_node):
+            graph.remove_node(node)
+    return graph
 
 
 SEQ_LEN = 300
 NUM_EXAMPLES = 40
 NUMBER_OF_HEADS = 8
 NUMBER_OF_LAYERS = 2
-BASE_MODEL_PROBS = torch.zeros([0])  # zero-size tensor so we error
+BASE_MODEL_LOGPROBS = torch.zeros([0])  # zero-size tensor so we error
 
 
 def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
@@ -40,11 +62,11 @@ def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
     wandb.log({"mask_scores": fig})
 
 
-def visualize_mask(model: HookedTransformer) -> None:
+def visualize_mask(model: HookedTransformer) -> tuple[int, list[TLACDCInterpNode]]:
     node_name_list = []
     mask_scores_for_names = []
     total_nodes = 0
-    nodes_to_mask = []
+    nodes_to_mask: list[TLACDCInterpNode] = []
     for layer_index, layer in enumerate(model.blocks):
         for head_index in range(NUMBER_OF_HEADS):
             for q_k_v in ["q", "k", "v"]:
@@ -53,21 +75,25 @@ def visualize_mask(model: HookedTransformer) -> None:
                     mask_sample = (
                         layer.attn.hook_q.sample_mask()[head_index].cpu().item()
                     )
-                if q_k_v == "k":
+                elif q_k_v == "k":
                     mask_sample = (
                         layer.attn.hook_k.sample_mask()[head_index].cpu().item()
                     )
-                if q_k_v == "v":
+                elif q_k_v == "v":
                     mask_sample = (
                         layer.attn.hook_v.sample_mask()[head_index].cpu().item()
                     )
-                node_name = f"layer_{layer_index}_head_{head_index}_{q_k_v}"
-                node_name_list.append(node_name)
-                mask_scores_for_names.append(
-                    layer.attn.hook_v.mask_scores[head_index].cpu().item()
-                )
+                else:
+                    raise ValueError(f"{q_k_v=} must be q, k, or v")
+
+                node_name = f"blocks.{layer_index}.attn.hook_{q_k_v}"
+                node_name_with_index = f"{node_name}[{head_index}]"
+                node_name_list.append(node_name_with_index)
+                node = TLACDCInterpNode(node_name, TorchIndex((None, None, head_index)), EdgeType.ADDITION)
+
+                mask_scores_for_names.append(mask_sample)
                 if mask_sample < 0.5:
-                    nodes_to_mask.append(node_name)
+                    nodes_to_mask.append(node)
 
     assert len(mask_scores_for_names) == 3 * NUMBER_OF_HEADS * NUMBER_OF_LAYERS
     log_plotly_bar_chart(x=node_name_list, y=mask_scores_for_names)
@@ -126,14 +152,12 @@ def negative_log_probs(
 def kl_divergence(logits: torch.Tensor, mask_reshaped: torch.Tensor):
     """Compute KL divergence between base_model_probs and probs, taken from Arthur's ACDC code"""
     # labels = dataset.arrs["labels"].evaluate()
-    probs = F.softmax(logits, dim=-1)
-
-    assert probs.min() >= 0.0
-    assert probs.max() <= 1.0
+    probs = F.log_softmax(logits, dim=-1)
 
     denom = mask_reshaped.int().sum().item()
-    kl_div = (BASE_MODEL_PROBS * (BASE_MODEL_PROBS.log() - probs.log())).sum(dim=-1)
-    kl_div = kl_div * mask_reshaped.int()
+    kl_div = F.kl_div(probs, BASE_MODEL_LOGPROBS, log_target=True, reduction="none").sum(dim=-1)
+    assert kl_div.shape == mask_reshaped.shape, (kl_div.shape, mask_reshaped.shape)
+    kl_div = kl_div * mask_reshaped
 
     return kl_div.sum() / denom
 
@@ -173,14 +197,14 @@ def train_induction(args, induction_model):
     mask_reshaped = torch.load(base_dir / "mask_reshaped.pt").to(args.device)
 
 
-    global BASE_MODEL_PROBS
+    global BASE_MODEL_LOGPROBS
     with torch.no_grad():
         for layer in induction_model.blocks:
             layer.attn.hook_q.mask_scores[:] = torch.inf
             layer.attn.hook_k.mask_scores[:] = torch.inf
             layer.attn.hook_v.mask_scores[:] = torch.inf
 
-        BASE_MODEL_PROBS = induction_model(train_data_tensor).detach()
+        BASE_MODEL_LOGPROBS = F.log_softmax(induction_model(train_data_tensor), dim=-1)
 
         for layer in induction_model.blocks:
             layer.attn.hook_q.mask_scores[:] = 1.6094
@@ -369,24 +393,23 @@ if __name__ == "__main__":
     regularization_params = [args.lambda_reg]
 
     is_masked = True
-    logit_diff_list = []
-    number_of_nodes_list = []
-    percentage_binary_list = []
-    number_of_edges = []
 
     model.freeze_weights()
     print("Finding subnetwork...")
     log, model, number_of_nodes, logit_diff, nodes_to_mask = train_induction(args=args, induction_model=model)
-    for _ in range(100):
-        print("nodes to mask", nodes_to_mask)
-        print("number of nodes", number_of_nodes)
-    logit_diff_list.append(logit_diff)
-    number_of_nodes_list.append(number_of_nodes)
+
+    graph = corr_graph_from_mask(model, nodes_to_mask)
     mask_val_dict = get_nodes_mask_dict(model)
     percentage_binary = log_percentage_binary(mask_val_dict)
-    number_of_edges.append(compute_no_edges_in_transformer_lens(nodes_to_mask))
-    wandb.log({"percentage_binary": percentage_binary})
-    percentage_binary_list.append(percentage_binary)
+
+    print(dict(
+        logit_diff=logit_diff,
+        number_of_nodes=number_of_nodes,
+        nodes_to_mask=nodes_to_mask,
+        number_of_edges=len(graph.edges),
+        percentage_binary=percentage_binary,
+    ))
+
     # sanity_check_with_transformer_lens(mask_val_dict)
     wandb.finish()
 
@@ -399,20 +422,20 @@ if __name__ == "__main__":
     # make sure that the model makes correct predictions
     # brainstorm more
     #
-    wandb.init(project="pareto-subnetwork-probing", entity=args.wandb_entity)
-    import plotly.express as px
+    # wandb.init(project="pareto-subnetwork-probing", entity=args.wandb_entity)
+    # import plotly.express as px
 
-    df = pd.DataFrame(
-        {
-            "x": number_of_edges,
-            "y": [i.detach().cpu().item() for i in logit_diff_list],
-            "regularization_params": regularization_params,
-            "percentage_binary": percentage_binary_list,
-        }
-    )
-    plt = px.scatter(
-        df, x="x", y="y", hover_data=["regularization_params", "percentage_binary"]
-    )
-    plt.update_layout(xaxis_title="Number of Nodes", yaxis_title="KL")
-    wandb.log({"number_of_nodes": plt})
-    wandb.finish()
+    # df = pd.DataFrame(
+    #     {
+    #         "x": number_of_edges,
+    #         "y": [i.detach().cpu().item() for i in logit_diff_list],
+    #         "regularization_params": regularization_params,
+    #         "percentage_binary": percentage_binary_list,
+    #     }
+    # )
+    # plt = px.scatter(
+    #     df, x="x", y="y", hover_data=["regularization_params", "percentage_binary"]
+    # )
+    # plt.update_layout(xaxis_title="Number of Nodes", yaxis_title="KL")
+    # wandb.log({"number_of_nodes": plt})
+    # wandb.finish()
