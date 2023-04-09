@@ -21,6 +21,7 @@ from transformer_lens.ioi_dataset import IOIDataset
 
 
 def compute_no_edges_in_transformer_lens(nodes_to_mask):
+    # Example nodes to mask name: "layer_0_head_3_q"
     print(nodes_to_mask)
     return 1
 
@@ -313,7 +314,7 @@ def get_nodes_mask_dict(model: HookedTransformer):
 parser = argparse.ArgumentParser("train_induction")
 parser.add_argument("--wandb-entity", type=str, required=True)
 parser.add_argument("--device", type=str, default="cuda")
-parser.add_argument("--mask-lr", type=float, default=0.001)
+parser.add_argument("--lr", type=float, default=0.001)
 parser.add_argument("--epochs", type=int, default=3000)
 parser.add_argument("--verbose", type=bool, default=True)
 parser.add_argument("--lambda-reg", type=float, default=100)
