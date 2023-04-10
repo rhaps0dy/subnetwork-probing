@@ -39,7 +39,7 @@ for lambda_reg in regularization_params:
                     "--login",
                     "--wandb",
                     "--never-restart",
-                    f"--command='{command}'",
+                    f"--command={command}",
                     "--working-dir=/Automatic-Circuit-Discovery",
                 ]
             )
