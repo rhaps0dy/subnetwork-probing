@@ -223,6 +223,7 @@ def train_induction(args, induction_model):
     print("Reset subject:", args.reset_subject)
     if args.reset_subject:
         induction_model = HookedTransformer(induction_model.cfg, is_masked=True).to(torch.device(args.device))
+        induction_model.freeze_weights()
 
     # one parameter per thing that is masked
     mask_params = [

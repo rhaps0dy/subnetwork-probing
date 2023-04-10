@@ -7,7 +7,7 @@ regularization_params = 10 ** np.linspace(-2, 2, 29)
 seed = random.randint(0, 2**31 - 1)
 
 i = 0
-for reset_subject in [0, 1]:
+for reset_subject in [1]:
     for zero_ablation in [0, 1]:
         for lambda_reg in regularization_params:
             command = shlex.join(
