@@ -220,6 +220,9 @@ def train_induction(args, induction_model):
 
     del target_model
 
+    print("Reset subject:", args.reset_subject)
+    if args.reset_subject:
+        induction_model = HookedTransformer(induction_model.cfg, is_masked=True).to(torch.device(args.device))
 
     # one parameter per thing that is masked
     mask_params = [
@@ -358,6 +361,7 @@ parser.add_argument("--verbose", type=int, default=1)
 parser.add_argument("--lambda-reg", type=float, default=100)
 parser.add_argument("--zero-ablation", type=int, required=True)
 parser.add_argument("--reset-target", type=int, required=True)
+parser.add_argument("--reset-subject", type=int, default=0)
 parser.add_argument("--seed", type=int, default=random.randint(0, 2 ** 31 - 1), help="Random seed (default: random)")
 
 
