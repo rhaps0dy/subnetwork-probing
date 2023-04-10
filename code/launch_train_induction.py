@@ -31,7 +31,7 @@ for lambda_reg in regularization_params:
                     "ctl",
                     "job",
                     "run",
-                    f"--name=agarriga-sp-{i:02d}",
+                    f"--name=agarriga-sp-{i:03d}",
                     "--shared-host-dir-slow-tolerant",
                     "--container=ghcr.io/rhaps0dy/automatic-circuit-discovery:0.3",
                     "--cpu=4",
