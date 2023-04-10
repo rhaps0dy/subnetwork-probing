@@ -3,13 +3,13 @@ import numpy as np
 import shlex
 import random
 
-regularization_params = 10 ** np.linspace(-2, 3, 36)
+regularization_params = 10 ** np.linspace(-2, 2, 29)
 seed = random.randint(0, 2**31 - 1)
 
 i = 0
-for lambda_reg in regularization_params:
+for reset_subject in [0, 1]:
     for zero_ablation in [0, 1]:
-        for reset_target in [0, 1]:
+        for lambda_reg in regularization_params:
             command = shlex.join(
                 [
                     "python",
@@ -20,7 +20,8 @@ for lambda_reg in regularization_params:
                     "--device=cuda",
                     "--epochs=12000",
                     f"--zero-ablation={zero_ablation}",
-                    f"--reset-target={reset_target}",
+                    f"--reset-target=0",
+                    f"--reset-subject={reset_subject}",
                     f"--seed={seed}",
                 ]
             )
