@@ -3,27 +3,28 @@
 # os.chdir("/home/ubuntu/mlab2_https/mlab2/")
 
 import argparse
+import random
 from copy import deepcopy
 from functools import partial
-from typing import Dict, List, Tuple
 from pathlib import Path
+from typing import Dict, List, Tuple
 
+import networkx as nx
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
 import transformer_lens.utils as utils
-import wandb
+from acdc.acdc_utils import EdgeType, TorchIndex
+from acdc.TLACDCCorrespondence import TLACDCCorrespondence
+from acdc.TLACDCInterpNode import TLACDCInterpNode
 from tqdm import tqdm
 from transformer_lens.HookedTransformer import HookedTransformer
 from transformer_lens.HookedTransformerConfig import HookedTransformerConfig
 from transformer_lens.ioi_dataset import IOIDataset
 
-from acdc.TLACDCInterpNode import TLACDCInterpNode
-from acdc.TLACDCCorrespondence import TLACDCCorrespondence
-from acdc.acdc_utils import EdgeType, TorchIndex
+import wandb
 
-import networkx as nx
 
 def corr_graph_from_mask(model: HookedTransformer, nodes_to_mask: list[TLACDCInterpNode]) -> nx.DiGraph:
     corr = TLACDCCorrespondence.setup_from_model(model)
@@ -164,20 +165,27 @@ def kl_divergence(logits: torch.Tensor, mask_reshaped: torch.Tensor):
 
 def do_random_resample_caching(
     model: HookedTransformer, train_data: torch.Tensor
-) -> HookedTransformer:
+) -> torch.Tensor:
     for layer in model.blocks:
         layer.attn.hook_q.is_caching = True
         layer.attn.hook_k.is_caching = True
         layer.attn.hook_v.is_caching = True
 
-    _ = model(train_data)
+    with torch.no_grad():
+        outs = model(train_data)
 
     for layer in model.blocks:
         layer.attn.hook_q.is_caching = False
         layer.attn.hook_k.is_caching = False
         layer.attn.hook_v.is_caching = False
 
-    return model
+    return outs
+
+def do_zero_caching(model: HookedTransformer) -> None:
+    for layer in model.blocks:
+        layer.attn.hook_q.cache = None
+        layer.attn.hook_k.cache = None
+        layer.attn.hook_v.cache = None
 
 
 def train_induction(args, induction_model):
@@ -186,30 +194,32 @@ def train_induction(args, induction_model):
     lambda_reg = args.lambda_reg
     verbose = args.verbose
 
+    torch.manual_seed(args.seed)
+
     wandb.init(
         project="subnetwork-probing",
         entity=args.wandb_entity,
-        config={"epochs": epochs, "mask_lr": mask_lr, "lambda_reg": lambda_reg},
+        group=args.wandb_group,
+        config=args,
     )
     base_dir = Path(__file__).parent.parent / "data" / "induction"
     train_data_tensor = torch.load(base_dir / "train.pt").to(args.device)
     patch_data_tensor = torch.load(base_dir / "patch.pt").to(args.device)
     mask_reshaped = torch.load(base_dir / "mask_reshaped.pt").to(args.device)
 
+    target_model = HookedTransformer(induction_model.cfg, is_masked=True).to(torch.device(args.device))
 
     global BASE_MODEL_LOGPROBS
+    print("Reset target: ", args.reset_target)
     with torch.no_grad():
-        for layer in induction_model.blocks:
-            layer.attn.hook_q.mask_scores[:] = torch.inf
-            layer.attn.hook_k.mask_scores[:] = torch.inf
-            layer.attn.hook_v.mask_scores[:] = torch.inf
+        if not args.reset_target:
+            target_model.load_state_dict(induction_model.state_dict())
 
-        BASE_MODEL_LOGPROBS = F.log_softmax(induction_model(train_data_tensor), dim=-1)
+        BASE_MODEL_LOGPROBS = F.log_softmax(
+            do_random_resample_caching(target_model, train_data_tensor), dim=-1)
 
-        for layer in induction_model.blocks:
-            layer.attn.hook_q.mask_scores[:] = 1.6094
-            layer.attn.hook_k.mask_scores[:] = 1.6094
-            layer.attn.hook_v.mask_scores[:] = 1.6094
+    del target_model
+
 
     # one parameter per thing that is masked
     mask_params = [
@@ -227,8 +237,11 @@ def train_induction(args, induction_model):
     trainer = torch.optim.Adam(mask_params, lr=mask_lr)
     log = []
 
+    if args.zero_ablation:
+        do_zero_caching(induction_model)
     for epoch in tqdm(range(epochs)):  # tqdm.notebook.tqdm(range(epochs)):
-        induction_model = do_random_resample_caching(induction_model, patch_data_tensor)
+        if not args.zero_ablation:
+            do_random_resample_caching(induction_model, patch_data_tensor)
         induction_model.train()
         trainer.zero_grad()
         # compute loss, also log other metrics
@@ -337,11 +350,15 @@ def get_nodes_mask_dict(model: HookedTransformer):
 
 parser = argparse.ArgumentParser("train_induction")
 parser.add_argument("--wandb-entity", type=str, required=True)
+parser.add_argument("--wandb-group", type=str, required=True)
 parser.add_argument("--device", type=str, default="cuda")
 parser.add_argument("--lr", type=float, default=0.001)
 parser.add_argument("--epochs", type=int, default=3000)
-parser.add_argument("--verbose", type=bool, default=True)
+parser.add_argument("--verbose", type=int, default=1)
 parser.add_argument("--lambda-reg", type=float, default=100)
+parser.add_argument("--zero-ablation", type=int, required=True)
+parser.add_argument("--reset-target", type=int, required=True)
+parser.add_argument("--seed", type=int, default=random.randint(0, 2 ** 31 - 1), help="Random seed (default: random)")
 
 
 if __name__ == "__main__":
@@ -402,10 +419,10 @@ if __name__ == "__main__":
     mask_val_dict = get_nodes_mask_dict(model)
     percentage_binary = log_percentage_binary(mask_val_dict)
 
-    print(dict(
+    wandb.log(dict(
         logit_diff=logit_diff,
         number_of_nodes=number_of_nodes,
-        nodes_to_mask=nodes_to_mask,
+        nodes_to_mask=list(map(str, nodes_to_mask)),
         number_of_edges=len(graph.edges),
         percentage_binary=percentage_binary,
     ))

@@ -1,47 +1,44 @@
 import subprocess
+import numpy as np
+import shlex
+import random
 
-regularization_params = [
-    1e-2,
-    1e-1,
-    1e1,
-    20,
-    40,
-    50,
-    55,
-    60,
-    65,
-    70,
-    80,
-    100,
-    120,
-    140,
-    160,
-    180,
-    200,
-    250,
-    300,
-    310,
-    320,
-    330,
-    350,
-    360,
-    370,
-    380,
-    400,
-    500,
-    600,
-    700,
-    800,
-    900,
-    1e3,
-]
+regularization_params = 10**np.linspace(-2, 3, 36)
+seed = random.randint(0, 2**31-1)
 
+i = 0
 for lambda_reg in regularization_params:
-    print("Launching training for regularization parameter {}".format(param))
-    subprocess.call(
-        [
-            "python3",
-            "train_induction.py",
-            f"--lambda-reg={lambda_reg}",
-        ]
-    )
+    for zero_ablation in [0, 1]:
+        for reset_target in [0, 1]:
+            command = shlex.join([
+                "python", "/Automatic-Circuit-Discovery/subnetwork-probing/code/train_induction.py",
+                f"--lambda_reg={lambda_reg:.3f}",
+                "--wandb-entity=adria-garriga",
+                "--wandb-group=regularization",
+                "--device=cuda",
+                "--epochs=3000",
+                f"--zero-ablation={zero_ablation}",
+                f"--reset-target={reset_target}",
+                f"--seed={seed}",
+            ])
+            print("Launching", command)
+
+            subprocess.call(
+                [
+                    "ctl",
+                    "job",
+                    "run",
+                    f"--name=agarriga-sp-{i:02d}"
+                    "--shared-host-dir-slow-tolerant",
+                    "--container=ghcr.io/rhaps0dy/automatic-circuit-discovery:0.2",
+                    "--cpu=4",
+                    "--gpu=1",
+                    "--login",
+                    "--wandb",
+                    "--never-restart",
+                    f"--command='{command}'",
+                    "--working-dir=/Automatic-Circuit-Discovery",
+                ]
+            )
+            i += 1
+
