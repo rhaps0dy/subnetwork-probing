@@ -457,22 +457,3 @@ if __name__ == "__main__":
     # reimplement sanity  check with transformer lens TODO
     # make sure that the input data makes sense
     # make sure that the model makes correct predictions
-    # brainstorm more
-    #
-    # wandb.init(project="pareto-subnetwork-probing", entity=args.wandb_entity)
-    # import plotly.express as px
-
-    # df = pd.DataFrame(
-    #     {
-    #         "x": number_of_edges,
-    #         "y": [i.detach().cpu().item() for i in logit_diff_list],
-    #         "regularization_params": regularization_params,
-    #         "percentage_binary": percentage_binary_list,
-    #     }
-    # )
-    # plt = px.scatter(
-    #     df, x="x", y="y", hover_data=["regularization_params", "percentage_binary"]
-    # )
-    # plt.update_layout(xaxis_title="Number of Nodes", yaxis_title="KL")
-    # wandb.log({"number_of_nodes": plt})
-    # wandb.finish()

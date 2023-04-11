@@ -16,13 +16,8 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent / "code"))
 
 from train_induction import correspondence_from_mask, get_transformer_config
+from plot_pareto import parse_interpnode
 import networkx as nx
-
-
-def parse_interpnode(s: str) -> TLACDCInterpNode:
-    name, idx = s.split("[")
-    idx = int(idx[-2])
-    return TLACDCInterpNode(name, TorchIndex([None, None, idx]), EdgeType.ADDITION)
 
 
 def delete_nested_dict(d: dict, keys: list):
