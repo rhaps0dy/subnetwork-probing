@@ -8,6 +8,7 @@ from copy import deepcopy
 from functools import partial
 from pathlib import Path
 from typing import Dict, List, Tuple
+import collections
 
 import networkx as nx
 import numpy as np
@@ -26,27 +27,37 @@ from transformer_lens.ioi_dataset import IOIDataset
 import wandb
 
 
-def corr_graph_from_mask(model: HookedTransformer, nodes_to_mask: list[TLACDCInterpNode]) -> nx.DiGraph:
+def correspondence_from_mask(model: HookedTransformer, nodes_to_mask: list[TLACDCInterpNode]) -> TLACDCCorrespondence:
     corr = TLACDCCorrespondence.setup_from_model(model)
 
-    # Build DiGraph from correspondence
-    graph = nx.DiGraph()
-    for node in corr.nodes():
-        graph.add_node((node.name, node.index))
-    for cn, ci, pn, pi in corr.all_edges().keys():
-        graph.add_edge((pn, pi), (cn, ci))
-
-    # Remove masked nodes
+    # If all of {qkv} is masked, also add its head child
+    # to the list of nodes to mask
+    head_parents = collections.defaultdict(lambda: 0)
     for node in nodes_to_mask:
-        graph.remove_node((node.name, node.index))
+        child_name = node.name.replace("_q", "_result").replace("_k", "_result").replace("_v", "_result")
+        head_parents[(child_name, node.index)] += 1
 
-    # Remove nodes which don't communicate with the output
-    logits_node = (f"blocks.{model.cfg.n_layers-1}.hook_resid_post", TorchIndex([None]))
-    assert logits_node in graph.nodes
-    for node in list(graph.nodes):
-        if not nx.has_path(graph, node, logits_node):
-            graph.remove_node(node)
-    return graph
+    assert all([v <= 3 for v in head_parents.values()])
+
+    for (child_name, child_index), count in head_parents.items():
+        if count == 3:
+            nodes_to_mask.append(TLACDCInterpNode(child_name, child_index, EdgeType.ADDITION))
+
+    for node in nodes_to_mask:
+        # Mark edges where this is child as not present
+        rest2 = corr.edges[node.name][node.index]
+        for rest3 in rest2.values():
+            for edge in rest3.values():
+                edge.present = False
+
+        # Mark edges where this is parent as not present
+        for rest1 in corr.edges.values():
+            for rest2 in rest1.values():
+                try:
+                    rest2[node.name][node.index].present = False
+                except KeyError:
+                    pass
+    return corr
 
 
 SEQ_LEN = 300
@@ -366,8 +377,7 @@ parser.add_argument("--reset-subject", type=int, default=0)
 parser.add_argument("--seed", type=int, default=random.randint(0, 2 ** 31 - 1), help="Random seed (default: random)")
 
 
-if __name__ == "__main__":
-    args = parser.parse_args()
+def get_transformer_config():
     cfg = HookedTransformerConfig(
         n_layers=2,
         d_model=256,
@@ -407,6 +417,11 @@ if __name__ == "__main__":
         # n_params: Optional[int] = None
         # use_hook_tokens: bool = False
     )
+    return cfg
+
+if __name__ == "__main__":
+    args = parser.parse_args()
+    cfg = get_transformer_config()
     model = HookedTransformer(cfg, is_masked=True)
     state_dict = torch.load(Path(__file__).parent.parent / "data" / "induction" / "model.pt")
     model.load_state_dict(state_dict)
@@ -420,7 +435,7 @@ if __name__ == "__main__":
     print("Finding subnetwork...")
     log, model, number_of_nodes, logit_diff, nodes_to_mask = train_induction(args=args, induction_model=model)
 
-    graph = corr_graph_from_mask(model, nodes_to_mask)
+    corr = correspondence_from_mask(model, nodes_to_mask)
     mask_val_dict = get_nodes_mask_dict(model)
     percentage_binary = log_percentage_binary(mask_val_dict)
 
@@ -428,7 +443,7 @@ if __name__ == "__main__":
         logit_diff=logit_diff,
         number_of_nodes=number_of_nodes,
         nodes_to_mask=list(map(str, nodes_to_mask)),
-        number_of_edges=len(graph.edges),
+        number_of_edges=corr.count_no_edges(),
         percentage_binary=percentage_binary,
     ))
 
