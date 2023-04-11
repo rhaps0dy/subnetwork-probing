@@ -135,39 +135,26 @@ def regularizer(
 
 def negative_log_probs(
     labels: torch.Tensor, logits: torch.Tensor, mask_reshaped: torch.Tensor
-) -> float:
-    """NOTE: this average over all sequence positions, I'm unsure why..."""
-    probs = F.softmax(logits, dim=-1)
+) -> torch.Tensor:
+    logprobs = F.log_softmax(logits, dim=-1)
 
-    assert probs.min() >= 0.0
-    assert probs.max() <= 1.0
+    nll_all = F.nll_loss(
+        logprobs.view(-1, logprobs.size(-1)), labels.view(-1), reduction="none"
+    ).view_as(mask_reshaped)
 
-    log_probs = probs[
-        torch.arange(NUM_EXAMPLES).unsqueeze(-1),
-        torch.arange(SEQ_LEN).unsqueeze(0),
-        labels,
-    ].log()
-
-    assert mask_reshaped.shape == log_probs.shape, (
-        mask_reshaped.shape,
-        log_probs.shape,
-    )
     denom = mask_reshaped.int().sum().item()
 
-    masked_log_probs = log_probs * mask_reshaped.int()
-    result = (-1.0 * (masked_log_probs.sum())) / denom
-
-    print("Result", result, denom)
-    return result
+    out = (nll_all * mask_reshaped).sum() / denom
+    return out
 
 
-def kl_divergence(logits: torch.Tensor, mask_reshaped: torch.Tensor):
+def kl_divergence(logits: torch.Tensor, mask_reshaped: torch.Tensor) -> torch.Tensor:
     """Compute KL divergence between base_model_probs and probs, taken from Arthur's ACDC code"""
     # labels = dataset.arrs["labels"].evaluate()
-    probs = F.log_softmax(logits, dim=-1)
+    logprobs = F.log_softmax(logits, dim=-1)
 
     denom = mask_reshaped.int().sum().item()
-    kl_div = F.kl_div(probs, BASE_MODEL_LOGPROBS, log_target=True, reduction="none").sum(dim=-1)
+    kl_div = F.kl_div(logprobs, BASE_MODEL_LOGPROBS, log_target=True, reduction="none").sum(dim=-1)
     assert kl_div.shape == mask_reshaped.shape, (kl_div.shape, mask_reshaped.shape)
     kl_div = kl_div * mask_reshaped
 
@@ -216,6 +203,7 @@ def train_induction(args, induction_model):
     base_dir = Path(__file__).parent.parent / "data" / "induction"
     train_data_tensor = torch.load(base_dir / "train.pt").to(args.device)
     patch_data_tensor = torch.load(base_dir / "patch.pt").to(args.device)
+    labels_tensor = torch.load(base_dir / "labels.pt").to(args.device)
     mask_reshaped = torch.load(base_dir / "mask_reshaped.pt").to(args.device)
 
     target_model = HookedTransformer(induction_model.cfg, is_masked=True).to(torch.device(args.device))
@@ -263,9 +251,17 @@ def train_induction(args, induction_model):
         # logit_diff_term = negative_log_probs(
         #     dataset, induction_model(train_data_tensor), mask_reshaped
         # )
-        logit_diff_term = kl_divergence(
-            induction_model(train_data_tensor), mask_reshaped
-        )
+        if args.loss_type == "kl_div":
+            logit_diff_term = kl_divergence(
+                induction_model(train_data_tensor), mask_reshaped
+            )
+        elif args.loss_type == "nll":
+            logit_diff_term = negative_log_probs(
+                labels_tensor, induction_model(train_data_tensor), mask_reshaped
+            )
+        else:
+            raise ValueError(f"Unknown loss type {args.loss_type}")
+
         regularizer_term = regularizer(induction_model)
         loss = logit_diff_term + regularizer_term * lambda_reg
         loss.backward()
@@ -368,6 +364,7 @@ parser.add_argument("--wandb-entity", type=str, required=True)
 parser.add_argument("--wandb-group", type=str, required=True)
 parser.add_argument("--device", type=str, default="cuda")
 parser.add_argument("--lr", type=float, default=0.001)
+parser.add_argument("--loss-type", type=str, default="kl_div", choices=["kl_div", "nll"])
 parser.add_argument("--epochs", type=int, default=3000)
 parser.add_argument("--verbose", type=int, default=1)
 parser.add_argument("--lambda-reg", type=float, default=100)
