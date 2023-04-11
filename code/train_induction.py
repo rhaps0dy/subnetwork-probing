@@ -217,12 +217,24 @@ def train_induction(args, induction_model):
         BASE_MODEL_LOGPROBS = F.log_softmax(
             do_random_resample_caching(target_model, train_data_tensor), dim=-1)
 
+        BASE_NLL = negative_log_probs(labels_tensor, BASE_MODEL_LOGPROBS, mask_reshaped)
+        assert not BASE_NLL.requires_grad and BASE_NLL.shape == ()
+        print("Base NLL: ", BASE_NLL.item())
+
     del target_model
 
     print("Reset subject:", args.reset_subject)
     if args.reset_subject:
-        induction_model = HookedTransformer(induction_model.cfg, is_masked=True).to(torch.device(args.device))
+        reset_state_dict = torch.load(base_dir / "random_model.pt")
+        induction_model.load_state_dict(reset_state_dict)
+        del reset_state_dict
         induction_model.freeze_weights()
+
+        reset_logits = do_random_resample_caching(induction_model, train_data_tensor)
+        induction_model_kl = kl_divergence(reset_logits, mask_reshaped)
+        induction_model_nll = negative_log_probs(labels_tensor, reset_logits, mask_reshaped)
+        print("Reset NLL: ", induction_model_nll.item())
+        print("Reset KL: ", induction_model_kl.item())
 
     # one parameter per thing that is masked
     mask_params = [
@@ -259,6 +271,11 @@ def train_induction(args, induction_model):
             logit_diff_term = negative_log_probs(
                 labels_tensor, induction_model(train_data_tensor), mask_reshaped
             )
+        elif args.loss_type == "match_nll":
+            nll = negative_log_probs(
+                labels_tensor, induction_model(train_data_tensor), mask_reshaped
+            )
+            logit_diff_term = torch.abs(nll - BASE_NLL)
         else:
             raise ValueError(f"Unknown loss type {args.loss_type}")
 
@@ -364,7 +381,7 @@ parser.add_argument("--wandb-entity", type=str, required=True)
 parser.add_argument("--wandb-group", type=str, required=True)
 parser.add_argument("--device", type=str, default="cuda")
 parser.add_argument("--lr", type=float, default=0.001)
-parser.add_argument("--loss-type", type=str, default="kl_div", choices=["kl_div", "nll"])
+parser.add_argument("--loss-type", type=str, default="kl_div", choices=["kl_div", "nll", "match_nll"])
 parser.add_argument("--epochs", type=int, default=3000)
 parser.add_argument("--verbose", type=int, default=1)
 parser.add_argument("--lambda-reg", type=float, default=100)

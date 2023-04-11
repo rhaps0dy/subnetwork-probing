@@ -3,45 +3,68 @@ import numpy as np
 import shlex
 import random
 
-regularization_params = 10 ** np.linspace(-2, 2, 29)
-seed = random.randint(0, 2**31 - 1)
 
-i = 0
-for reset_subject in [1]:
-    for zero_ablation in [0, 1]:
-        for lambda_reg in regularization_params:
-            command = shlex.join(
-                [
-                    "python",
-                    "/Automatic-Circuit-Discovery/subnetwork-probing/code/train_induction.py",
-                    f"--lambda-reg={lambda_reg:.3f}",
-                    "--wandb-entity=adria-garriga",
-                    "--wandb-group=reset-subject",
-                    "--device=cuda",
-                    "--epochs=12000",
-                    f"--zero-ablation={zero_ablation}",
-                    f"--reset-target=0",
-                    f"--reset-subject={reset_subject}",
-                    f"--seed={seed}",
-                ]
-            )
-            print("Launching", command)
+def main(testing=False):
+    # Base NLL:  0.9099822044372559
+    # Reset NLL:  11.174062728881836
+    # Reset KL:  10.114195823669434
+    # All the losses are of order 10, so we can use the same scale
 
-            subprocess.call(
-                [
-                    "ctl",
-                    "job",
-                    "run",
-                    f"--name=agarriga-sp-{i:03d}",
-                    "--shared-host-dir-slow-tolerant",
-                    "--container=ghcr.io/rhaps0dy/automatic-circuit-discovery:0.4",
-                    "--cpu=4",
-                    "--gpu=1",
-                    "--login",
-                    "--wandb",
-                    "--never-restart",
-                    f"--command={command}",
-                    "--working-dir=/Automatic-Circuit-Discovery",
-                ]
-            )
-            i += 1
+    regularization_params = np.concatenate(
+        [
+            10 ** np.linspace(-2, 0, 11),
+            np.linspace(1, 10, 10)[1:],
+            np.linspace(10, 250, 13)[1:],
+        ]
+    )
+    seed = random.randint(0, 2**31 - 1)
+
+    i = 0
+    for reset_subject in [0, 1]:
+        for zero_ablation in [0, 1]:
+            for loss_type in ["nll", "kl_div", "match_nll"]:
+                for lambda_reg in [0.01] if testing else regularization_params:
+                    command = [
+                        "python",
+                        "code/train_induction.py"
+                        if testing
+                        else "/Automatic-Circuit-Discovery/subnetwork-probing/code/train_induction.py",
+                        f"--lambda-reg={lambda_reg:.3f}",
+                        "--wandb-entity=adria-garriga",
+                        "--wandb-group=reset-subject",
+                        f"--device={'cpu' if testing else 'cuda'}",
+                        "--epochs=1",
+                        f"--zero-ablation={zero_ablation}",
+                        f"--reset-target=0",
+                        f"--reset-subject={reset_subject}",
+                        f"--seed={seed}",
+                        f"--loss-type={loss_type}",
+                    ]
+                    if testing:
+                        subprocess.call(command)
+                        continue
+
+                    command_str = shlex.join(command)
+                    print("Launching", command_str)
+                    subprocess.call(
+                        [
+                            "ctl",
+                            "job",
+                            "run",
+                            f"--name=agarriga-sp-{i:03d}",
+                            "--shared-host-dir-slow-tolerant",
+                            "--container=ghcr.io/rhaps0dy/automatic-circuit-discovery:0.4",
+                            "--cpu=4",
+                            "--gpu=1",
+                            "--login",
+                            "--wandb",
+                            "--never-restart",
+                            f"--command={command_str}",
+                            "--working-dir=/Automatic-Circuit-Discovery",
+                        ]
+                    )
+                    i += 1
+
+
+if __name__ == "__main__":
+    main()
