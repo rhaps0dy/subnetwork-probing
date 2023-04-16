@@ -19,6 +19,7 @@ import transformer_lens.utils as utils
 from acdc.acdc_utils import EdgeType, TorchIndex
 from acdc.TLACDCCorrespondence import TLACDCCorrespondence
 from acdc.TLACDCInterpNode import TLACDCInterpNode
+from acdc.induction.utils import get_all_induction_things, get_mask_repeat_candidates
 from tqdm import tqdm
 from transformer_lens.HookedTransformer import HookedTransformer
 from transformer_lens.HookedTransformerConfig import HookedTransformerConfig
@@ -186,7 +187,7 @@ def do_zero_caching(model: HookedTransformer) -> None:
         layer.attn.hook_v.cache = None
 
 
-def train_induction(args, induction_model):
+def train_induction(args, induction_model, train_data_tensor, patch_data_tensor, labels_tensor):
     epochs = args.epochs
     mask_lr = args.lr
     lambda_reg = args.lambda_reg
@@ -201,10 +202,7 @@ def train_induction(args, induction_model):
         config=args,
     )
     base_dir = Path(__file__).parent.parent / "data" / "induction"
-    train_data_tensor = torch.load(base_dir / "train.pt").to(args.device)
-    patch_data_tensor = torch.load(base_dir / "patch.pt").to(args.device)
-    labels_tensor = torch.load(base_dir / "labels.pt").to(args.device)
-    mask_reshaped = torch.load(base_dir / "mask_reshaped.pt").to(args.device)
+    mask_reshaped = get_mask_repeat_candidates(*train_data_tensor.shape)
 
     target_model = HookedTransformer(induction_model.cfg, is_masked=True).to(torch.device(args.device))
 
@@ -389,6 +387,9 @@ parser.add_argument("--zero-ablation", type=int, required=True)
 parser.add_argument("--reset-target", type=int, required=True)
 parser.add_argument("--reset-subject", type=int, default=0)
 parser.add_argument("--seed", type=int, default=random.randint(0, 2 ** 31 - 1), help="Random seed (default: random)")
+parser.add_argument("--num-examples", type=int, default=100)
+parser.add_argument("--seq-len", type=int, default=300)
+
 
 
 def get_transformer_config():
@@ -437,9 +438,19 @@ if __name__ == "__main__":
     args = parser.parse_args()
     cfg = get_transformer_config()
     model = HookedTransformer(cfg, is_masked=True)
-    state_dict = torch.load(Path(__file__).parent.parent / "data" / "induction" / "model.pt")
-    model.load_state_dict(state_dict)
+
+    _acdc_model, train_data, patch_data, _acdc_metric = get_all_induction_things(
+        args.num_examples, args.seq_len+1, torch.device(args.device), randomize_data=False
+    )
+    labels_data = train_data[1:]
+    train_data = train_data[:-1]
+    patch_data = patch_data[:-1]
+
+    model.load_state_dict(_acdc_model.state_dict(), strict=False)
     model = model.to(args.device)
+    # Check that the model's outputs are the same
+    # torch.testing.assert_allclose(do_random_resample_caching(model, train_data), _acdc_model(train_data))
+    del _acdc_model
 
     regularization_params = [args.lambda_reg]
 
@@ -447,7 +458,13 @@ if __name__ == "__main__":
 
     model.freeze_weights()
     print("Finding subnetwork...")
-    log, model, number_of_nodes, logit_diff, nodes_to_mask = train_induction(args=args, induction_model=model)
+    log, model, number_of_nodes, logit_diff, nodes_to_mask = train_induction(
+        args=args,
+        induction_model=model,
+        train_data_tensor=train_data,
+        patch_data_tensor=patch_data,
+        labels_tensor=labels_data,
+    )
 
     corr = correspondence_from_mask(model, nodes_to_mask)
     mask_val_dict = get_nodes_mask_dict(model)
