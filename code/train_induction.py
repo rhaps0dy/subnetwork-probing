@@ -207,7 +207,7 @@ def train_induction(
     torch.manual_seed(args.seed)
 
     wandb.init(
-        project="subnetwork-probing",
+        project=args.wandb_project,
         entity=args.wandb_entity,
         group=args.wandb_group,
         config=args,
@@ -411,6 +411,7 @@ def get_nodes_mask_dict(model: HookedTransformer):
 
 
 parser = argparse.ArgumentParser("train_induction")
+parser.add_argument("--wandb-project", type=str, default="subnetwork-probing")
 parser.add_argument("--wandb-entity", type=str, required=True)
 parser.add_argument("--wandb-group", type=str, required=True)
 parser.add_argument("--device", type=str, default="cuda")

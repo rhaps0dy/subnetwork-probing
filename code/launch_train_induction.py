@@ -30,6 +30,7 @@ def main(testing=False):
                         if testing
                         else "/Automatic-Circuit-Discovery/subnetwork-probing/code/train_induction.py",
                         f"--lambda-reg={lambda_reg:.3f}",
+                        "--wandb-project=induction-sp-replicate"
                         "--wandb-entity=adria-garriga",
                         "--wandb-group=reset-with-nll-2",
                         f"--device={'cpu' if testing else 'cuda'}",
@@ -39,6 +40,8 @@ def main(testing=False):
                         f"--reset-subject={reset_subject}",
                         f"--seed={seed}",
                         f"--loss-type={loss_type}",
+                        "--num-examples=50",
+                        "--seq-len=300",
                     ]
                     if testing:
                         subprocess.call(command)
