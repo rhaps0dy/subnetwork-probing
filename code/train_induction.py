@@ -477,7 +477,7 @@ if __name__ == "__main__":
     model = HookedTransformer(cfg, is_masked=True)
 
     _acdc_model, train_data_orig, patch_data_orig, _acdc_metric = get_all_induction_things(
-        args.num_examples*2, args.seq_len+1, torch.device(args.device), randomize_data=False
+        args.num_examples*2, args.seq_len+1, device=torch.device(args.device), randomize_data=False
     )
     train_candidates_mask_orig = get_mask_repeat_candidates(
         num_examples=args.num_examples * 2, seq_len=args.seq_len
