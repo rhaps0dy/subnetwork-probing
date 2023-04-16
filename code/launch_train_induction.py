@@ -30,8 +30,8 @@ def main(testing=False):
                         if testing
                         else "/Automatic-Circuit-Discovery/subnetwork-probing/code/train_induction.py",
                         f"--lambda-reg={lambda_reg:.3f}",
-                        "--wandb-project=induction-sp-replicate"
-                        "--wandb-entity=adria-garriga",
+                        "--wandb-project=induction-sp-replicate",
+                        "--wandb-entity=remix_school-of-rock",
                         "--wandb-group=reset-with-nll-2",
                         f"--device={'cpu' if testing else 'cuda'}",
                         f"--epochs={1 if testing else 10000}",
