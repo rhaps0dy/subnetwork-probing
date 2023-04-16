@@ -36,18 +36,20 @@ def main(testing=False):
                         f"--device={'cpu' if testing else 'cuda'}",
                         f"--epochs={1 if testing else 10000}",
                         f"--zero-ablation={zero_ablation}",
-                        f"--reset-target=0",
                         f"--reset-subject={reset_subject}",
                         f"--seed={seed}",
                         f"--loss-type={loss_type}",
-                        "--num-examples=50",
-                        "--seq-len=300",
+                        f"--num-examples={1 if testing else 50}",
+                        f"--seq-len=300",
+                        f"--n-loss-average-runs={1 if testing else 20}"
                     ]
+                    command_str = shlex.join(command)
                     if testing:
-                        subprocess.call(command)
+                        print("Running", command_str)
+                        out = subprocess.run(command, check=True, capture_output=True)
+                        print("Output:", out.stdout.decode("utf-8"))
                         continue
 
-                    command_str = shlex.join(command)
                     print("Launching", command_str)
                     subprocess.call(
                         [

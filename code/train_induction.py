@@ -19,7 +19,7 @@ import transformer_lens.utils as utils
 from acdc.acdc_utils import EdgeType, TorchIndex
 from acdc.TLACDCCorrespondence import TLACDCCorrespondence
 from acdc.TLACDCInterpNode import TLACDCInterpNode
-from acdc.induction.utils import get_all_induction_things, get_mask_repeat_candidates
+from acdc.induction.utils import AllInductionThings, get_all_induction_things, get_mask_repeat_candidates
 from tqdm import tqdm
 from transformer_lens.HookedTransformer import HookedTransformer
 from transformer_lens.HookedTransformerConfig import HookedTransformerConfig
@@ -65,7 +65,6 @@ SEQ_LEN = 300
 NUM_EXAMPLES = 40
 NUMBER_OF_HEADS = 8
 NUMBER_OF_LAYERS = 2
-BASE_MODEL_LOGPROBS = torch.zeros([0])  # zero-size tensor so we error
 
 
 def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
@@ -134,34 +133,6 @@ def regularizer(
     return torch.mean(torch.stack(mask_scores))
 
 
-def negative_log_probs(
-    labels: torch.Tensor, logits: torch.Tensor, mask_reshaped: torch.Tensor
-) -> torch.Tensor:
-    logprobs = F.log_softmax(logits, dim=-1)
-
-    nll_all = F.nll_loss(
-        logprobs.view(-1, logprobs.size(-1)), labels.view(-1), reduction="none"
-    ).view_as(mask_reshaped)
-
-    denom = mask_reshaped.int().sum().item()
-
-    out = (nll_all * mask_reshaped).sum() / denom
-    return out
-
-
-def kl_divergence(logits: torch.Tensor, mask_reshaped: torch.Tensor) -> torch.Tensor:
-    """Compute KL divergence between base_model_probs and probs, taken from Arthur's ACDC code"""
-    # labels = dataset.arrs["labels"].evaluate()
-    logprobs = F.log_softmax(logits, dim=-1)
-
-    denom = mask_reshaped.int().sum().item()
-    kl_div = F.kl_div(logprobs, BASE_MODEL_LOGPROBS, log_target=True, reduction="none").sum(dim=-1)
-    assert kl_div.shape == mask_reshaped.shape, (kl_div.shape, mask_reshaped.shape)
-    kl_div = kl_div * mask_reshaped
-
-    return kl_div.sum() / denom
-
-
 def do_random_resample_caching(
     model: HookedTransformer, train_data: torch.Tensor
 ) -> torch.Tensor:
@@ -188,21 +159,10 @@ def do_zero_caching(model: HookedTransformer) -> None:
 
 
 def train_induction(
-    args,
-    induction_model,
-    train_data_tensor,
-    patch_data_tensor,
-    labels_tensor,
-    train_candidates_mask,
-    test_data_tensor,
-    test_patch_data_tensor,
-    test_labels_tensor,
-    test_candidates_mask,
+    args, induction_model: HookedTransformer, all_induction_things: AllInductionThings,
 ):
     epochs = args.epochs
-    mask_lr = args.lr
     lambda_reg = args.lambda_reg
-    verbose = args.verbose
 
     torch.manual_seed(args.seed)
 
@@ -212,35 +172,19 @@ def train_induction(
         group=args.wandb_group,
         config=args,
     )
-    base_dir = Path(__file__).parent.parent / "data" / "induction"
-
-    target_model = HookedTransformer(induction_model.cfg, is_masked=True).to(torch.device(args.device))
-
-    global BASE_MODEL_LOGPROBS
-    print("Reset target: ", args.reset_target)
-    with torch.no_grad():
-        if not args.reset_target:
-            target_model.load_state_dict(induction_model.state_dict())
-
-        BASE_MODEL_LOGPROBS = F.log_softmax(
-            do_random_resample_caching(target_model, train_data_tensor), dim=-1)
-
-        BASE_NLL = negative_log_probs(labels_tensor, BASE_MODEL_LOGPROBS, train_candidates_mask)
-        assert not BASE_NLL.requires_grad and BASE_NLL.shape == ()
-        print("Base NLL: ", BASE_NLL.item())
 
     print("Reset subject:", args.reset_subject)
     if args.reset_subject:
+        base_dir = Path(__file__).parent.parent / "data" / "induction"
         reset_state_dict = torch.load(base_dir / "random_model.pt")
         induction_model.load_state_dict(reset_state_dict)
         del reset_state_dict
         induction_model.freeze_weights()
 
-        reset_logits = do_random_resample_caching(induction_model, train_data_tensor)
-        induction_model_kl = kl_divergence(reset_logits, train_candidates_mask)
-        induction_model_nll = negative_log_probs(labels_tensor, reset_logits, train_candidates_mask)
-        print("Reset NLL: ", induction_model_nll.item())
-        print("Reset KL: ", induction_model_kl.item())
+        reset_logits = do_random_resample_caching(induction_model, all_induction_things.validation_data)
+        print("Reset validation metric: ", all_induction_things.validation_metric(reset_logits))
+        reset_logits = do_random_resample_caching(induction_model, all_induction_things.test_data)
+        print("Reset test metric: ", all_induction_things.test_metric(reset_logits))
 
     # one parameter per thing that is masked
     mask_params = [
@@ -255,43 +199,25 @@ def train_induction(
         if "mask_scores" not in n and p.requires_grad
     ]
     assert len(model_params) == 0, ("MODEL should be empty", model_params)
-    trainer = torch.optim.Adam(mask_params, lr=mask_lr)
+    trainer = torch.optim.Adam(mask_params, lr=args.lr)
 
     if args.zero_ablation:
         do_zero_caching(induction_model)
     for epoch in tqdm(range(epochs)):  # tqdm.notebook.tqdm(range(epochs)):
         if not args.zero_ablation:
-            do_random_resample_caching(induction_model, patch_data_tensor)
+            do_random_resample_caching(induction_model, all_induction_things.validation_patch_data)
         induction_model.train()
         trainer.zero_grad()
-        # compute loss, also log other metrics
-        # logit_diff_term = negative_log_probs(
-        #     dataset, induction_model(train_data_tensor), mask_reshaped
-        # )
-        if args.loss_type == "kl_div":
-            logit_diff_term = kl_divergence(
-                induction_model(train_data_tensor), train_candidates_mask
-            )
-        elif args.loss_type == "nll":
-            logit_diff_term = negative_log_probs(
-                labels_tensor, induction_model(train_data_tensor), train_candidates_mask
-            )
-        elif args.loss_type == "match_nll":
-            nll = negative_log_probs(
-                labels_tensor, induction_model(train_data_tensor), train_candidates_mask
-            )
-            logit_diff_term = torch.abs(nll - BASE_NLL)
-        else:
-            raise ValueError(f"Unknown loss type {args.loss_type}")
 
+        specific_metric_term = all_induction_things.validation_metric(induction_model(all_induction_things.validation_data))
         regularizer_term = regularizer(induction_model)
-        loss = logit_diff_term + regularizer_term * lambda_reg
+        loss = specific_metric_term + regularizer_term * lambda_reg
         loss.backward()
 
         wandb.log(
             {
                 "regularisation_loss": regularizer_term,
-                "KL_loss": logit_diff_term,
+                "specific_metric_loss": specific_metric_term,
                 "total_loss": loss,
             }
         )
@@ -300,38 +226,42 @@ def train_induction(
         if epoch % 10 == 0:
             number_of_nodes, nodes_to_mask = visualize_mask(induction_model)
 
-    print("Calculating metrics on a test set")
+
     with torch.no_grad():
-        BASE_MODEL_LOGPROBS = F.log_softmax(
-            do_random_resample_caching(target_model, test_data_tensor), dim=-1)
+        # The loss has a lot of variance so let's just average over a few runs with the same seed
+        rng_state = torch.random.get_rng_state()
 
-        BASE_NLL = negative_log_probs(labels_tensor, BASE_MODEL_LOGPROBS, test_candidates_mask)
-        assert not BASE_NLL.requires_grad and BASE_NLL.shape == ()
-        print("Base NLL: ", BASE_NLL.item())
+        # Final training loss
+        specific_metric_term = 0.0
+        for _ in range(args.n_loss_average_runs):
+            if args.zero_ablation:
+                do_zero_caching(induction_model)
+            else:
+                do_random_resample_caching(induction_model, all_induction_things.validation_patch_data)
+            specific_metric_term += all_induction_things.validation_metric(
+                induction_model(all_induction_things.validation_data)
+            ).item()
+        print(f"Final train/validation metric: {specific_metric_term:.4f}")
 
+        torch.random.set_rng_state(rng_state)
+        test_specific_metric_term = 0.0
+        # Test loss
+        for _ in range(args.n_loss_average_runs):
+            if args.zero_ablation:
+                do_zero_caching(induction_model)
+            else:
+                do_random_resample_caching(induction_model, all_induction_things.test_patch_data)
+            test_specific_metric_term += all_induction_things.test_metric(
+                induction_model(all_induction_things.test_data)
+            ).item()
+        print(f"Final test metric: {test_specific_metric_term:.4f}")
 
-        if args.zero_ablation:
-            do_zero_caching(induction_model)
-        else:
-            do_random_resample_caching(induction_model, test_patch_data_tensor)
-
-        logits, mask = induction_model(test_data_tensor), test_candidates_mask
-        if args.loss_type == "kl_div":
-            test_logit_diff_term = kl_divergence(logits, mask)
-        elif args.loss_type == "nll":
-            test_logit_diff_term = negative_log_probs(labels_tensor, logits, mask)
-        elif args.loss_type == "match_nll":
-            nll = negative_log_probs(labels_tensor, logits, mask)
-            test_logit_diff_term = torch.abs(nll - BASE_NLL)
-        else:
-            raise ValueError(f"Unknown loss type {args.loss_type}")
-
-    to_log_dict = dict(
-        number_of_nodes=number_of_nodes,
-        logit_diff=logit_diff_term,
-        nodes_to_mask=nodes_to_mask,
-        test_logit_diff=test_logit_diff_term,
-    )
+        to_log_dict = dict(
+            number_of_nodes=number_of_nodes,
+            specific_metric=specific_metric_term,
+            nodes_to_mask=nodes_to_mask,
+            test_specific_metric=test_specific_metric_term,
+        )
     return induction_model, to_log_dict
 
 
@@ -421,11 +351,11 @@ parser.add_argument("--epochs", type=int, default=3000)
 parser.add_argument("--verbose", type=int, default=1)
 parser.add_argument("--lambda-reg", type=float, default=100)
 parser.add_argument("--zero-ablation", type=int, required=True)
-parser.add_argument("--reset-target", type=int, required=True)
 parser.add_argument("--reset-subject", type=int, default=0)
 parser.add_argument("--seed", type=int, default=random.randint(0, 2 ** 31 - 1), help="Random seed (default: random)")
 parser.add_argument("--num-examples", type=int, default=100)
 parser.add_argument("--seq-len", type=int, default=300)
+parser.add_argument("--n-loss-average-runs", type=int, default=20)
 
 
 
@@ -476,49 +406,27 @@ if __name__ == "__main__":
     cfg = get_transformer_config()
     model = HookedTransformer(cfg, is_masked=True)
 
-    _acdc_model, train_data_orig, patch_data_orig, _acdc_metric = get_all_induction_things(
-        args.num_examples*2, args.seq_len+1, device=torch.device(args.device)
-    )
-    train_candidates_mask_orig = get_mask_repeat_candidates(
-        num_examples=args.num_examples * 2, seq_len=args.seq_len
+    all_induction_things = get_all_induction_things(
+        args.num_examples*2, args.seq_len, device=torch.device(args.device), metric=args.loss_type,
     )
 
-    # Partition data in train and test
-    train_data = train_data_orig[:args.num_examples, :-1].contiguous()
-    labels_data = train_data_orig[:args.num_examples, 1:].contiguous()
-    patch_data = patch_data_orig[:args.num_examples, :-1].contiguous()
-    train_candidates_mask = train_candidates_mask_orig[:args.num_examples, :].contiguous()
-
-
-    test_data = train_data_orig[args.num_examples:, :-1].contiguous()
-    test_labels_data = train_data_orig[args.num_examples:, 1:].contiguous()
-    test_patch_data = patch_data_orig[args.num_examples:, :-1].contiguous()
-    test_candidates_mask = train_candidates_mask_orig[args.num_examples:, :].contiguous()
-
-
+    _acdc_model = all_induction_things.tl_model
     model.load_state_dict(_acdc_model.state_dict(), strict=False)
     model = model.to(args.device)
     # Check that the model's outputs are the same
-    # torch.testing.assert_allclose(do_random_resample_caching(model, train_data), _acdc_model(train_data))
+    torch.testing.assert_allclose(
+        do_random_resample_caching(model, all_induction_things.validation_data),
+        _acdc_model(all_induction_things.validation_data),
+    )
     del _acdc_model
-
-    regularization_params = [args.lambda_reg]
-
-    is_masked = True
+    all_induction_things.tl_model = None
 
     model.freeze_weights()
     print("Finding subnetwork...")
     model, to_log_dict = train_induction(
         args=args,
         induction_model=model,
-        train_data_tensor=train_data,
-        patch_data_tensor=patch_data,
-        labels_tensor=labels_data,
-        train_candidates_mask=train_candidates_mask,
-        test_data_tensor=test_data,
-        test_patch_data_tensor=test_patch_data,
-        test_labels_tensor=test_labels_data,
-        test_candidates_mask=test_candidates_mask,
+        all_induction_things=all_induction_things,
     )
 
     corr = correspondence_from_mask(model, to_log_dict["nodes_to_mask"])
@@ -533,11 +441,3 @@ if __name__ == "__main__":
     wandb.log(to_log_dict)
     # sanity_check_with_transformer_lens(mask_val_dict)
     wandb.finish()
-
-    # make sure that regularizer can be optimized DONE
-    # make sure logit diff can be optimized DONE
-    # make sure that the mask is the right shape HOLD
-    # reimplement all the diagnostics that are commented out TODO
-    # reimplement sanity  check with transformer lens TODO
-    # make sure that the input data makes sense
-    # make sure that the model makes correct predictions
