@@ -51,14 +51,14 @@ def main(testing=False):
                         continue
 
                     print("Launching", command_str)
-                    subprocess.call(
+                    subprocess.run(
                         [
                             "ctl",
                             "job",
                             "run",
                             f"--name=agarriga-sp-{i:03d}",
                             "--shared-host-dir-slow-tolerant",
-                            "--container=ghcr.io/rhaps0dy/automatic-circuit-discovery:1.0",
+                            "--container=ghcr.io/rhaps0dy/automatic-circuit-discovery:1.1",
                             "--cpu=4",
                             "--gpu=1",
                             "--login",
@@ -66,7 +66,8 @@ def main(testing=False):
                             "--never-restart",
                             f"--command={command_str}",
                             "--working-dir=/Automatic-Circuit-Discovery",
-                        ]
+                        ],
+                        check=True,
                     )
                     i += 1
 
