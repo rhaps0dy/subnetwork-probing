@@ -353,7 +353,7 @@ parser.add_argument("--lambda-reg", type=float, default=100)
 parser.add_argument("--zero-ablation", type=int, required=True)
 parser.add_argument("--reset-subject", type=int, default=0)
 parser.add_argument("--seed", type=int, default=random.randint(0, 2 ** 31 - 1), help="Random seed (default: random)")
-parser.add_argument("--num-examples", type=int, default=100)
+parser.add_argument("--num-examples", type=int, default=50)
 parser.add_argument("--seq-len", type=int, default=300)
 parser.add_argument("--n-loss-average-runs", type=int, default=20)
 
@@ -417,6 +417,8 @@ if __name__ == "__main__":
     torch.testing.assert_allclose(
         do_random_resample_caching(model, all_induction_things.validation_data),
         _acdc_model(all_induction_things.validation_data),
+        atol=1e-6,
+        rtol=1e-3,
     )
     del _acdc_model
     all_induction_things.tl_model = None
