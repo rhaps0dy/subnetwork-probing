@@ -407,7 +407,7 @@ if __name__ == "__main__":
     model = HookedTransformer(cfg, is_masked=True)
 
     all_induction_things = get_all_induction_things(
-        args.num_examples*2, args.seq_len, device=torch.device(args.device), metric=args.loss_type,
+        args.num_examples, args.seq_len, device=torch.device(args.device), metric=args.loss_type,
     )
 
     _acdc_model = all_induction_things.tl_model
