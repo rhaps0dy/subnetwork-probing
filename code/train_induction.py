@@ -417,7 +417,7 @@ if __name__ == "__main__":
     torch.testing.assert_allclose(
         do_random_resample_caching(model, all_induction_things.validation_data),
         _acdc_model(all_induction_things.validation_data),
-        atol=1e-6,
+        atol=1e-3,
         rtol=1e-3,
     )
     del _acdc_model

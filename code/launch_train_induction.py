@@ -58,7 +58,7 @@ def main(testing=False):
                             "run",
                             f"--name=agarriga-sp-{i:03d}",
                             "--shared-host-dir-slow-tolerant",
-                            "--container=ghcr.io/rhaps0dy/automatic-circuit-discovery:1.2.2",
+                            "--container=ghcr.io/rhaps0dy/automatic-circuit-discovery:1.2.4",
                             "--cpu=4",
                             "--gpu=1",
                             "--login",
@@ -66,6 +66,8 @@ def main(testing=False):
                             "--never-restart",
                             f"--command={command_str}",
                             "--working-dir=/Automatic-Circuit-Discovery",
+                            "--shared-host-dir=/home/agarriga/.cache/huggingface",
+                            "--shared-host-dir-mount=/root/.cache/huggingface",
                         ],
                         check=True,
                     )
