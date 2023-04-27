@@ -30,6 +30,7 @@ def main(testing=False):
                         if testing
                         else "/Automatic-Circuit-Discovery/subnetwork-probing/code/train_induction.py",
                         f"--lambda-reg={lambda_reg:.3f}",
+                        f"--wandb-name=agarriga-sp-{i:03d}",
                         "--wandb-project=induction-sp-replicate",
                         "--wandb-entity=remix_school-of-rock",
                         "--wandb-group=reset-with-nll-21",
