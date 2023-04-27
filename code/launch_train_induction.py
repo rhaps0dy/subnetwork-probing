@@ -34,7 +34,7 @@ def main(testing=False):
                         "--wandb-project=induction-sp-replicate",
                         "--wandb-entity=remix_school-of-rock",
                         "--wandb-group=reset-with-nll-21",
-                        f"--device={'cpu' if testing else 'cuda'}",
+                        f"--device=cpu",
                         f"--epochs={1 if testing else 10000}",
                         f"--zero-ablation={zero_ablation}",
                         f"--reset-subject={reset_subject}",
@@ -43,11 +43,13 @@ def main(testing=False):
                         f"--num-examples={1 if testing else 50}",
                         f"--seq-len=300",
                         f"--n-loss-average-runs={1 if testing else 20}"
+                        "--wandb-dir=/training/sp-induction",
+                        "--wandb-mode=offline",
                     ]
                     command_str = shlex.join(command)
                     if testing:
                         print("Running", command_str)
-                        out = subprocess.run(command, check=True, capture_output=True)
+                        # out = subprocess.run(command, check=True, capture_output=True)
                         print("Output:", out.stdout.decode("utf-8"))
                         continue
 
@@ -59,9 +61,9 @@ def main(testing=False):
                             "run",
                             f"--name=agarriga-sp-{i:03d}",
                             "--shared-host-dir-slow-tolerant",
-                            "--container=ghcr.io/rhaps0dy/automatic-circuit-discovery:1.2.6",
-                            "--cpu=4",
-                            "--gpu=1",
+                            "--container=ghcr.io/rhaps0dy/automatic-circuit-discovery:1.2.7",
+                            "--cpu=8",
+                            "--gpu=0",
                             "--login",
                             "--wandb",
                             "--never-restart",
@@ -69,6 +71,8 @@ def main(testing=False):
                             "--working-dir=/Automatic-Circuit-Discovery",
                             "--shared-host-dir=/home/agarriga/.cache/huggingface",
                             "--shared-host-dir-mount=/root/.cache/huggingface",
+                            "--volume-name=agarriga-models-training",
+                            "--volume-mount=/training"
                         ],
                         check=True,
                     )

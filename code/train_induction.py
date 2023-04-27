@@ -172,6 +172,8 @@ def train_induction(
         entity=args.wandb_entity,
         group=args.wandb_group,
         config=args,
+        dir=args.wandb_dir,
+        mode=args.wandb_mode,
     )
 
     print("Reset subject:", args.reset_subject)
@@ -346,6 +348,8 @@ parser.add_argument("--wandb-name", type=str, required=True)
 parser.add_argument("--wandb-project", type=str, default="subnetwork-probing")
 parser.add_argument("--wandb-entity", type=str, required=True)
 parser.add_argument("--wandb-group", type=str, required=True)
+parser.add_argument("--wandb-dir", type=str, default="/tmp/wandb")
+parser.add_argument("--wandb-mode", type=str, default="online")
 parser.add_argument("--device", type=str, default="cuda")
 parser.add_argument("--lr", type=float, default=0.001)
 parser.add_argument("--loss-type", type=str, default="kl_div", choices=["kl_div", "nll", "match_nll"])
