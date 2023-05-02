@@ -42,7 +42,7 @@ def main(testing=False):
                         f"--loss-type={loss_type}",
                         f"--num-examples={1 if testing else 50}",
                         f"--seq-len=300",
-                        f"--n-loss-average-runs={1 if testing else 20}"
+                        f"--n-loss-average-runs={1 if testing else 20}",
                         "--wandb-dir=/training/sp-induction",
                         "--wandb-mode=offline",
                     ]
