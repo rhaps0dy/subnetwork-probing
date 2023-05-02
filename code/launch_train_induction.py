@@ -61,7 +61,7 @@ def main(testing=False):
                             "run",
                             f"--name=agarriga-sp-{i:03d}",
                             "--shared-host-dir-slow-tolerant",
-                            "--container=ghcr.io/rhaps0dy/automatic-circuit-discovery:1.2.7",
+                            "--container=ghcr.io/rhaps0dy/automatic-circuit-discovery:1.2.8",
                             "--cpu=2",
                             "--gpu=1",
                             "--login",
