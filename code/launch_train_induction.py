@@ -43,8 +43,8 @@ def main(testing=False):
                         f"--num-examples={1 if testing else 50}",
                         f"--seq-len=300",
                         f"--n-loss-average-runs={1 if testing else 20}",
-                        "--wandb-dir=/training/sp-induction",
-                        "--wandb-mode=offline",
+                        "--wandb-dir=/training/sp-induction",  # If it doesn't exist wandb will use /tmp
+                        "--wandb-mode=online",
                     ]
                     command_str = shlex.join(command)
                     if testing:
@@ -71,8 +71,6 @@ def main(testing=False):
                             "--working-dir=/Automatic-Circuit-Discovery",
                             "--shared-host-dir=/home/agarriga/.cache/huggingface",
                             "--shared-host-dir-mount=/root/.cache/huggingface",
-                            "--volume-name=agarriga-models-training",
-                            "--volume-mount=/training"
                         ],
                         check=True,
                     )
