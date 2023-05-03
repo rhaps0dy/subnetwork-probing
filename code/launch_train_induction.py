@@ -25,7 +25,6 @@ def main(testing=False):
             for loss_type in ["nll", "kl_div", "match_nll"]:
                 for lambda_reg in [0.01] if testing else regularization_params:
                     command = [
-                        "HUGGINGFACE_HUB_CACHE=/training/hf_hub_cache",
                         "python",
                         "code/train_induction.py"
                         if testing
@@ -45,7 +44,7 @@ def main(testing=False):
                         f"--seq-len=300",
                         f"--n-loss-average-runs={1 if testing else 20}",
                         "--wandb-dir=/training/sp-induction",  # If it doesn't exist wandb will use /tmp
-                        "--wandb-mode=offline",
+                        "--wandb-mode=online",
                     ]
                     command_str = shlex.join(command)
                     if testing:
@@ -63,15 +62,15 @@ def main(testing=False):
                             f"--name=agarriga-sp-{i:03d}",
                             "--shared-host-dir-slow-tolerant",
                             "--container=ghcr.io/rhaps0dy/automatic-circuit-discovery:1.2.8",
-                            "--cpu=2",
+                            "--cpu=4",
                             "--gpu=1",
                             "--login",
                             "--wandb",
                             "--never-restart",
                             f"--command={command_str}",
                             "--working-dir=/Automatic-Circuit-Discovery",
-                            "--shared-host-dir=/nas/ucb/k8/agarriga",
-                            "--shared-host-dir-mount=/training",
+                            "--shared-host-dir=/home/agarriga/.cache/huggingface",
+                            "--shared-host-dir-mount=/root/.cache/huggingface",
                         ],
                         check=True,
                     )
