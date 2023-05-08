@@ -294,9 +294,11 @@ def sanity_check_with_transformer_lens(mask_dict):
 
 
 def make_forward_hooks(mask_dict):
+    number_of_heads = model.cfg.n_heads
+    number_of_layers = model.cfg.n_layers
     forward_hooks = []
-    for layer in range(NUMBER_OF_LAYERS):
-        for head in range(NUMBER_OF_HEADS):
+    for layer in range(number_of_layers):
+        for head in range(number_of_heads):
             for qkv in ["q", "k", "v"]:
                 mask_value = mask_dict[f"{layer}.{head}.{qkv}"]
 
@@ -331,9 +333,11 @@ def log_percentage_binary(mask_val_dict: Dict) -> float:
 
 
 def get_nodes_mask_dict(model: HookedTransformer):
+    number_of_heads = model.cfg.n_heads
+    number_of_layers = model.cfg.n_layers
     mask_value_dict = {}
     for layer_index, layer in enumerate(model.blocks):
-        for head_index in range(NUMBER_OF_HEADS):
+        for head_index in range(number_of_heads):
             for q_k_v in ["q", "k", "v"]:
                 # total_nodes += 1
                 if q_k_v == "q":
