@@ -12,6 +12,7 @@ import collections
 
 import networkx as nx
 import numpy as np
+from acdc.docstring.utils import AllDocstringThings, get_all_docstring_things
 import pandas as pd
 import torch
 import torch.nn.functional as F
@@ -159,7 +160,7 @@ def do_zero_caching(model: HookedTransformer) -> None:
 
 
 def train_induction(
-    args, induction_model: HookedTransformer, all_induction_things: AllInductionThings,
+    args, induction_model: HookedTransformer, all_task_things: AllInductionThings | AllDocstringThings,
 ):
     epochs = args.epochs
     lambda_reg = args.lambda_reg
@@ -176,18 +177,25 @@ def train_induction(
         mode=args.wandb_mode,
     )
 
+    if isinstance(all_task_things, AllInductionThings):
+        test_metric_fns = {args.metric: all_task_things.test_metric}
+    else:
+        test_metric_fns = all_task_things.test_metrics
+
+
     print("Reset subject:", args.reset_subject)
     if args.reset_subject:
+        assert isinstance(all_task_things, AllInductionThings)
         base_dir = Path(__file__).parent.parent / "data" / "induction"
         reset_state_dict = torch.load(base_dir / "random_model.pt")
         induction_model.load_state_dict(reset_state_dict)
         del reset_state_dict
         induction_model.freeze_weights()
 
-        reset_logits = do_random_resample_caching(induction_model, all_induction_things.validation_data)
-        print("Reset validation metric: ", all_induction_things.validation_metric(reset_logits))
-        reset_logits = do_random_resample_caching(induction_model, all_induction_things.test_data)
-        print("Reset test metric: ", all_induction_things.test_metric(reset_logits))
+        reset_logits = do_random_resample_caching(induction_model, all_task_things.validation_data)
+        print("Reset validation metric: ", all_task_things.validation_metric(reset_logits))
+        reset_logits = do_random_resample_caching(induction_model, all_task_things.test_data)
+        print("Reset test metric: ", all_task_things.test_metric(reset_logits))
 
     # one parameter per thing that is masked
     mask_params = [
@@ -208,11 +216,11 @@ def train_induction(
         do_zero_caching(induction_model)
     for epoch in tqdm(range(epochs)):  # tqdm.notebook.tqdm(range(epochs)):
         if not args.zero_ablation:
-            do_random_resample_caching(induction_model, all_induction_things.validation_patch_data)
+            do_random_resample_caching(induction_model, all_task_things.validation_patch_data)
         induction_model.train()
         trainer.zero_grad()
 
-        specific_metric_term = all_induction_things.validation_metric(induction_model(all_induction_things.validation_data))
+        specific_metric_term = all_task_things.validation_metric(induction_model(all_task_things.validation_data))
         regularizer_term = regularizer(induction_model)
         loss = specific_metric_term + regularizer_term * lambda_reg
         loss.backward()
@@ -240,30 +248,34 @@ def train_induction(
             if args.zero_ablation:
                 do_zero_caching(induction_model)
             else:
-                do_random_resample_caching(induction_model, all_induction_things.validation_patch_data)
-            specific_metric_term += all_induction_things.validation_metric(
-                induction_model(all_induction_things.validation_data)
+                do_random_resample_caching(induction_model, all_task_things.validation_patch_data)
+            specific_metric_term += all_task_things.validation_metric(
+                induction_model(all_task_things.validation_data)
             ).item()
         print(f"Final train/validation metric: {specific_metric_term:.4f}")
 
-        torch.random.set_rng_state(rng_state)
-        test_specific_metric_term = 0.0
-        # Test loss
-        for _ in range(args.n_loss_average_runs):
-            if args.zero_ablation:
-                do_zero_caching(induction_model)
-            else:
-                do_random_resample_caching(induction_model, all_induction_things.test_patch_data)
-            test_specific_metric_term += all_induction_things.test_metric(
-                induction_model(all_induction_things.test_data)
-            ).item()
-        print(f"Final test metric: {test_specific_metric_term:.4f}")
+        test_specific_metrics = {}
+        for k, fn in test_metric_fns.items():
+            torch.random.set_rng_state(rng_state)
+            test_specific_metric_term = 0.0
+            # Test loss
+            for _ in range(args.n_loss_average_runs):
+                if args.zero_ablation:
+                    do_zero_caching(induction_model)
+                else:
+                    do_random_resample_caching(induction_model, all_task_things.test_patch_data)
+                test_specific_metric_term += fn(
+                    induction_model(all_task_things.test_data)
+                ).item()
+            test_specific_metrics[f"test_{k}"] = test_specific_metric_term
+
+        print(f"Final test metric: {test_specific_metrics}")
 
         to_log_dict = dict(
             number_of_nodes=number_of_nodes,
             specific_metric=specific_metric_term,
             nodes_to_mask=nodes_to_mask,
-            test_specific_metric=test_specific_metric_term,
+            **test_specific_metrics,
         )
     return induction_model, to_log_dict
 
@@ -352,7 +364,7 @@ parser.add_argument("--wandb-dir", type=str, default="/tmp/wandb")
 parser.add_argument("--wandb-mode", type=str, default="online")
 parser.add_argument("--device", type=str, default="cuda")
 parser.add_argument("--lr", type=float, default=0.001)
-parser.add_argument("--loss-type", type=str, default="kl_div", choices=["kl_div", "nll", "match_nll"])
+parser.add_argument("--loss-type", type=str, required=True)
 parser.add_argument("--epochs", type=int, default=3000)
 parser.add_argument("--verbose", type=int, default=1)
 parser.add_argument("--lambda-reg", type=float, default=100)
@@ -362,6 +374,7 @@ parser.add_argument("--seed", type=int, default=random.randint(0, 2 ** 31 - 1), 
 parser.add_argument("--num-examples", type=int, default=50)
 parser.add_argument("--seq-len", type=int, default=300)
 parser.add_argument("--n-loss-average-runs", type=int, default=20)
+parser.add_argument("--task", type=str, required=True)
 
 
 
@@ -409,32 +422,46 @@ def get_transformer_config():
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    cfg = get_transformer_config()
+    if args.task == "induction":
+        all_task_things = get_all_induction_things(
+            args.num_examples,
+            args.seq_len,
+            device=torch.device(args.device),
+            metric=args.loss_type,
+        )
+    elif args.task == "docstring":
+        all_task_things = get_all_docstring_things(
+            num_examples=args.num_examples,
+            seq_len=args.seq_len,
+            device=torch.device(args.device),
+            metric_name=args.loss_type,
+            correct_incorrect_wandb=True,
+        )
+    else:
+        raise ValueError(f"Unknown task {args.task}")
+
+    cfg = HookedTransformerConfig(**all_task_things.tl_model.cfg.__dict__)
     model = HookedTransformer(cfg, is_masked=True)
 
-    all_induction_things = get_all_induction_things(
-        args.num_examples, args.seq_len, device=torch.device(args.device), metric=args.loss_type,
-    )
-
-    _acdc_model = all_induction_things.tl_model
+    _acdc_model = all_task_things.tl_model
     model.load_state_dict(_acdc_model.state_dict(), strict=False)
     model = model.to(args.device)
     # Check that the model's outputs are the same
-    # torch.testing.assert_allclose(
-    #     do_random_resample_caching(model, all_induction_things.validation_data),
-    #     _acdc_model(all_induction_things.validation_data),
-    #     atol=1e-3,
-    #     rtol=1e-3,
-    # )
+    torch.testing.assert_allclose(
+        do_random_resample_caching(model, all_task_things.validation_data),
+        _acdc_model(all_task_things.validation_data),
+        atol=1e-3,
+        rtol=1e-2,
+    )
     del _acdc_model
-    all_induction_things.tl_model = None
+    all_task_things.tl_model = None
 
     model.freeze_weights()
     print("Finding subnetwork...")
     model, to_log_dict = train_induction(
         args=args,
         induction_model=model,
-        all_induction_things=all_induction_things,
+        all_task_things=all_task_things,
     )
 
     corr = correspondence_from_mask(model, to_log_dict["nodes_to_mask"])

@@ -29,6 +29,7 @@ def main(testing=False):
                         "code/train_induction.py"
                         if testing
                         else "/Automatic-Circuit-Discovery/subnetwork-probing/code/train_induction.py",
+                        "--task=induction",
                         f"--lambda-reg={lambda_reg:.3f}",
                         f"--wandb-name=agarriga-sp-{i:03d}",
                         "--wandb-project=induction-sp-replicate",
