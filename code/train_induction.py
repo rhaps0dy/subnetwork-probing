@@ -71,8 +71,8 @@ def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
 
 
 def visualize_mask(model: HookedTransformer) -> tuple[int, list[TLACDCInterpNode]]:
-    number_of_heads = model.cfg.num_heads
-    number_of_layers = model.cfg.num_layers
+    number_of_heads = model.cfg.n_heads
+    number_of_layers = model.cfg.n_layers
     node_name_list = []
     mask_scores_for_names = []
     total_nodes = 0
