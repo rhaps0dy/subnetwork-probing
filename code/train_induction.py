@@ -62,11 +62,6 @@ def correspondence_from_mask(model: HookedTransformer, nodes_to_mask: list[TLACD
     return corr
 
 
-SEQ_LEN = 300
-NUM_EXAMPLES = 40
-NUMBER_OF_HEADS = 8
-NUMBER_OF_LAYERS = 2
-
 
 def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
     import plotly.graph_objects as go
@@ -76,12 +71,14 @@ def log_plotly_bar_chart(x: List[str], y: List[float]) -> None:
 
 
 def visualize_mask(model: HookedTransformer) -> tuple[int, list[TLACDCInterpNode]]:
+    number_of_heads = model.cfg.num_heads
+    number_of_layers = model.cfg.num_layers
     node_name_list = []
     mask_scores_for_names = []
     total_nodes = 0
     nodes_to_mask: list[TLACDCInterpNode] = []
     for layer_index, layer in enumerate(model.blocks):
-        for head_index in range(NUMBER_OF_HEADS):
+        for head_index in range(number_of_heads):
             for q_k_v in ["q", "k", "v"]:
                 total_nodes += 1
                 if q_k_v == "q":
@@ -108,7 +105,7 @@ def visualize_mask(model: HookedTransformer) -> tuple[int, list[TLACDCInterpNode
                 if mask_sample < 0.5:
                     nodes_to_mask.append(node)
 
-    assert len(mask_scores_for_names) == 3 * NUMBER_OF_HEADS * NUMBER_OF_LAYERS
+    assert len(mask_scores_for_names) == 3 * number_of_heads * number_of_layers
     log_plotly_bar_chart(x=node_name_list, y=mask_scores_for_names)
     node_count = total_nodes - len(nodes_to_mask)
     return node_count, nodes_to_mask
@@ -440,7 +437,10 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown task {args.task}")
 
-    cfg = HookedTransformerConfig(**all_task_things.tl_model.cfg.__dict__)
+    kwargs = dict(**all_task_things.tl_model.cfg.__dict__)
+    del kwargs["use_split_qkv_input"]
+    del kwargs["use_global_cache"]
+    cfg = HookedTransformerConfig(**kwargs)
     model = HookedTransformer(cfg, is_masked=True)
 
     _acdc_model = all_task_things.tl_model
